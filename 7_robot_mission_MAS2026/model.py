@@ -449,7 +449,7 @@ class RobotMissionModel(mesa.Model):
             return
         
         # Execute all robots in random order
-        self.agents.shuffle_do("step_agent")
+        self.agents.select(lambda agent: isinstance(agent, (GreenRobot, YellowRobot, RedRobot))).shuffle_do("step_agent")
         
         # Collect data
         self.datacollector.collect(self)
