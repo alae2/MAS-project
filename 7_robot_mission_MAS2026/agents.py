@@ -254,15 +254,15 @@ class RedRobot(BaseRobot):
         inventory = knowledge["inventory"]
         observations = knowledge["observations"]
         
-        # If we have 1 red waste, move toward z3 and dispose
+        # If we have 1 red waste, move toward disposal zone and dispose
         if inventory.count(WasteType.RED) >= 1:
             target_frontier = observations.get("target_frontier")
             if target_frontier and pos[0] < target_frontier:
-                # Move toward disposal zone in z3
+                # Move toward disposal zone (eastmost position)
                 new_pos = (pos[0] + 1, pos[1])
                 return {"action": "move", "target_pos": new_pos}
-            else:
-                # In z3, dispose the waste
+            elif target_frontier and pos[0] == target_frontier:
+                # At disposal zone, dispose the waste
                 return {"action": "dispose"}
         
         # Look for red waste in current cell
