@@ -116,7 +116,7 @@ class GreenRobot(BaseRobot):
         # If we have 1 yellow waste, move toward z1/z2 frontier to deposit (move to the east)
         if inventory.count(WasteType.YELLOW) >= 1:
             target_frontier = observations.get("target_frontier")
-            if target_frontier and pos[0] < target_frontier[0]:
+            if target_frontier and pos[0] < target_frontier:
                 new_x = pos[0] + 1
                 new_pos = (new_x, pos[1])
                 return {"action": "move", "target_pos": new_pos}
@@ -189,7 +189,7 @@ class YellowRobot(BaseRobot):
         # If we have 1 red waste, move toward z3 frontier
         if inventory.count(WasteType.RED) >= 1:
             target_frontier = observations.get("target_frontier")
-            if target_frontier and pos[0] < target_frontier[0]:
+            if target_frontier and pos[0] < target_frontier:
                 new_x = pos[0] + 1
                 new_pos = (new_x, pos[1])
                 return {"action": "move", "target_pos": new_pos}
@@ -257,7 +257,7 @@ class RedRobot(BaseRobot):
         # If we have 1 red waste, move toward z3 and dispose
         if inventory.count(WasteType.RED) >= 1:
             target_frontier = observations.get("target_frontier")
-            if target_frontier and pos[0] < target_frontier[0]:
+            if target_frontier and pos[0] < target_frontier:
                 # Move toward disposal zone in z3
                 new_pos = (pos[0] + 1, pos[1])
                 return {"action": "move", "target_pos": new_pos}
