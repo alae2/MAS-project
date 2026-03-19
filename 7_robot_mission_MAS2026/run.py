@@ -1,7 +1,7 @@
 """
 Group: 7
-Members:
-Date: 
+Members: Ouissal BOUTOUATOU, Alae TAOUDI, Mohammed SBAIHI
+Date: March 18, 2026
 Description: Script to run the RobotMission simulation
 """
 
@@ -18,6 +18,8 @@ def run_simulation(
     n_yellow_robots=5,
     n_red_robots=3,
     n_initial_green_waste=10,
+    n_initial_yellow_waste=5,
+    n_initial_red_waste=3,
     seed=7
 ):
     """
@@ -31,6 +33,8 @@ def run_simulation(
         n_yellow_robots: Number of yellow robots
         n_red_robots: Number of red robots
         n_initial_green_waste: Number of initial green waste items
+        n_initial_yellow_waste: Number of initial yellow waste items
+        n_initial_red_waste: Number of initial red waste items
         seed: Random seed for reproducibility
     """
     
@@ -41,6 +45,8 @@ def run_simulation(
     print(f"  Yellow Robots: {n_yellow_robots}")
     print(f"  Red Robots: {n_red_robots}")
     print(f"  Initial Green Waste: {n_initial_green_waste}")
+    print(f"  Initial Yellow Waste: {n_initial_yellow_waste}")
+    print(f"  Initial Red Waste: {n_initial_red_waste}")
     print(f"  Steps: {n_steps}")
     print("\n" + "-" * 55 + "\n")
     
@@ -51,6 +57,8 @@ def run_simulation(
         n_yellow_robots=n_yellow_robots,
         n_red_robots=n_red_robots,
         n_initial_green_waste=n_initial_green_waste,
+        n_initial_yellow_waste=n_initial_yellow_waste,
+        n_initial_red_waste=n_initial_red_waste,
         max_steps=None,
         seed=seed
     )
@@ -169,6 +177,8 @@ if __name__ == "__main__":
         n_yellow_robots=2,
         n_red_robots=1,
         n_initial_green_waste=10,
+        n_initial_yellow_waste=5,
+        n_initial_red_waste=3,
         seed=7
     )
     
