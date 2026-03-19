@@ -1,35 +1,14 @@
 """
 Group: 7
-Members: 
+Members: Ouissal BOUTOUATOU, Alae TAOUDI, Mohammed SBAIHI
 Date: 
 Description: RobotMission Model for Multi-Agent Waste Collection System
 """
 
 import mesa
-from agents import GreenRobot, YellowRobot, RedRobot, WasteType
 
-
-class Waste(mesa.Agent):
-    """Represents a waste object in the environment"""
-
-    def __init__(self, model, waste_type):
-        """
-        Initialize a Waste object.
-        
-        Args:
-            model: Model instance
-            waste_type: WasteType enum
-        """
-        super().__init__(model)
-        self.waste_type = waste_type
-        self.collected = False
-        self.carried_by = None  # Robot unique_id if being carried, None if on ground
-
-    def __repr__(self):
-        if self.carried_by is not None:
-            return f"Waste({self.waste_type.value}, carried_by_robot_{self.carried_by})"
-        else:
-            return f"Waste({self.waste_type.value}, on_ground)"
+from agents import GreenRobot, YellowRobot, RedRobot
+from objects import Waste, WasteType, RadioactivityCell, WasteDisposalZone
 
 
 class RobotMissionModel(mesa.Model):
@@ -46,6 +25,8 @@ class RobotMissionModel(mesa.Model):
         n_yellow_robots=3,
         n_red_robots=2,
         n_initial_green_waste=30,
+        n_initial_yellow_waste=0,
+        n_initial_red_waste=0,
         max_steps=150,
         seed=None
     ):
@@ -59,6 +40,8 @@ class RobotMissionModel(mesa.Model):
             n_yellow_robots: Number of yellow robots
             n_red_robots: Number of red robots
             n_initial_green_waste: Number of initial green waste items in z1
+            n_initial_yellow_waste: Number of initial yellow waste items in z2
+            n_initial_red_waste: Number of initial red waste items in z3
             max_steps: Maximum number of simulation steps
             seed: Random seed
         """
@@ -81,7 +64,31 @@ class RobotMissionModel(mesa.Model):
             ("z3", (z2_end + 1, width - 1))  # zone 3: high radioactivity
         ]
         
-        self.radioactivity = [1, 50, 100]  # Radioactivity levels for zones
+        # Create radioactivity for each cell based on zone
+        self._radioactivity_map = {}
+        for x in range(width):
+            for y in range(height):
+                if x <= z1_end:
+                    zone_name = "z1"
+                    radioactivity_level = float(self.rng.uniform(0.0, 0.33))
+                elif x <= z2_end:
+                    zone_name = "z2"
+                    radioactivity_level = float(self.rng.uniform(0.33, 0.66))
+                else:
+                    zone_name = "z3"
+                    radioactivity_level = float(self.rng.uniform(0.66, 1.0))
+
+                cell_agent = RadioactivityCell(self, zone_name, radioactivity_level)
+                self.grid.place_agent(cell_agent, (x, y))
+                self._radioactivity_map[(x, y)] = cell_agent
+
+        # Create a waste disposal zone along the entire easternmost column
+        self.disposal_zone_x = width - 1
+        self.disposal_zone_cells = set()
+        for y in range(height):
+            disposal_cell = WasteDisposalZone(self)
+            self.grid.place_agent(disposal_cell, (self.disposal_zone_x, y))
+            self.disposal_zone_cells.add((self.disposal_zone_x, y))
         
         # Logging and statistics
         self.waste_collected = 0
@@ -130,6 +137,20 @@ class RobotMissionModel(mesa.Model):
             x = self.rng.integers(0, z1_end + 1)
             y = self.rng.integers(0, height)
             self.grid.place_agent(waste, (x, y))
+
+        # Create initial yellow waste in z2
+        for i in range(n_initial_yellow_waste):
+            waste = Waste(self, WasteType.YELLOW)
+            x = self.rng.integers(z1_end + 1, z2_end + 1)
+            y = self.rng.integers(0, height)
+            self.grid.place_agent(waste, (x, y))
+
+        # Create initial red waste in z3
+        for i in range(n_initial_red_waste):
+            waste = Waste(self, WasteType.RED)
+            x = self.rng.integers(z2_end + 1, width)
+            y = self.rng.integers(0, height)
+            self.grid.place_agent(waste, (x, y))
         
         # Collect initial data
         self.datacollector.collect(self)
@@ -137,7 +158,7 @@ class RobotMissionModel(mesa.Model):
     def perceive(self, agent):
         """
         Provide percepts: observations from agent's current cell and neighbors.
-        Includes target frontier and closest waste information.
+        Includes target frontier and radioactivity information.
         
         Args:
             agent: The agent perceiving
@@ -147,13 +168,17 @@ class RobotMissionModel(mesa.Model):
         """
         from agents import GreenRobot, YellowRobot, RedRobot
         
+        current_cell_radioactivity = self._get_radioactivity_at(agent.pos)
+
         percepts = {
             "agent_pos": agent.pos,
             "waste_here": [],
             "agents_here": [],
             "neighbors": [],
             "target_frontier": None,
-            "closest_target_waste": None
+            "radioactivity": current_cell_radioactivity["level"],
+            "zone": current_cell_radioactivity["zone"],
+            "disposal_zone_x": self.disposal_zone_x
         }
         
         # What's in my cell?
@@ -187,48 +212,21 @@ class RobotMissionModel(mesa.Model):
         elif isinstance(agent, YellowRobot):
             percepts["target_frontier"] = z2_end
         elif isinstance(agent, RedRobot):
-            percepts["target_frontier"] = self.width - 1
-        
-        # Find and report closest waste this robot can handle
-        closest_waste = self._find_closest_target_waste(agent)
-        if closest_waste:
-            percepts["closest_target_waste"] = {
-                "pos": closest_waste.pos,
-                "waste_type": closest_waste.waste_type,
-                "distance": self._manhattan_distance(agent.pos, closest_waste.pos)
-            }
+            percepts["target_frontier"] = self.disposal_zone_x
         
         return percepts
-    
-    def _manhattan_distance(self, pos1, pos2):
-        """Calculate Manhattan distance between two positions"""
-        return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
-    
-    def _find_closest_target_waste(self, robot):
-        """Find the closest waste that this robot type can handle"""
 
-        closest_waste = None
-        closest_distance = float('inf')
-        
-        for agent in self.agents:
-            # Only consider waste that's on the ground
-            if not isinstance(agent, Waste) or agent.pos is None or agent.carried_by is not None:
-                continue
-            
-            if not self._waste_accessible_to_robot(robot, agent.pos, agent.waste_type):
-                continue
-            
-            distance = self._manhattan_distance(robot.pos, agent.pos)
-            
-            if distance < closest_distance:
-                closest_distance = distance
-                closest_waste = agent
-        
-        return closest_waste
+    def _get_radioactivity_at(self, pos):
+        """Get zone name and radioactivity level for a position."""
+        cell_agent = self._radioactivity_map.get(pos)
+        if cell_agent is None:
+            return {"zone": None, "level": None}
+        return {"zone": cell_agent.zone_name, "level": cell_agent.radioactivity_level}
+    
     
     def _waste_accessible_to_robot(self, robot, waste_pos, waste_type):
         """Check if robot can pick up waste at this position based on waste type and location"""
-        from agents import GreenRobot, YellowRobot, RedRobot, WasteType
+        from agents import GreenRobot, YellowRobot, RedRobot
         
         z1_end = self.width // 3
         z2_end = (2 * self.width) // 3
@@ -239,12 +237,12 @@ class RobotMissionModel(mesa.Model):
             return waste_type == WasteType.GREEN and x <= z1_end
         
         elif isinstance(robot, YellowRobot):
-            # Yellow robots pick yellow waste only at z1/z2 frontier where green robots deposit
-            return waste_type == WasteType.YELLOW and x == z1_end
+            # Yellow robots pick yellow waste in z2 and at the z1/z2 frontier
+            return waste_type == WasteType.YELLOW and (x == z1_end or (z1_end < x <= z2_end))
         
         elif isinstance(robot, RedRobot):
-            # Reds robots pick up red waste from z2/z3 frontier where yellow robots deposit
-            return waste_type == WasteType.RED and x == z2_end
+            # Red robots pick red waste in z3 and at the z2/z3 frontier
+            return waste_type == WasteType.RED and (x == z2_end or x > z2_end)
         
         return False
 
@@ -382,7 +380,7 @@ class RobotMissionModel(mesa.Model):
 
     def _do_put_down(self, agent, action):
         """Execute put down action - robot must be at appropriate frontier"""
-        from agents import GreenRobot, YellowRobot, RedRobot, WasteType
+        from agents import GreenRobot, YellowRobot, RedRobot
         
         if not agent.inventory:
             return self.perceive(agent)
@@ -407,9 +405,9 @@ class RobotMissionModel(mesa.Model):
                 can_deposit = True
         
         elif isinstance(agent, RedRobot):
-            # Red robots dispose in the waste disposal zone (end of z3, eastmost position)
+            # Red robots can only put down at the disposal column
             waste = agent.inventory[0]
-            if waste.waste_type == WasteType.RED and x == self.width - 1:
+            if waste.waste_type == WasteType.RED and x == self.disposal_zone_x:
                 can_deposit = True
         
         if not can_deposit:
@@ -427,9 +425,8 @@ class RobotMissionModel(mesa.Model):
         if not agent.inventory:
             return self.perceive(agent)
         
-        # Check if agent is at the disposal zone (eastmost position)
-        x, y = agent.pos
-        if x != self.width - 1:
+        # Check if agent is at the disposal column
+        if agent.pos[0] != self.disposal_zone_x:
             return self.perceive(agent)
         
         # Remove waste from inventory and model
@@ -494,9 +491,9 @@ class RobotMissionModel(mesa.Model):
                 frontier_cells.append((z2_end, y))
         
         elif isinstance(robot, RedRobot):
-            # Red robots dispose at disposal zone 
+            # Red robots dispose at the disposal column
             for y in range(self.height):
-                frontier_cells.append((self.width - 1, y))
+                frontier_cells.append((self.disposal_zone_x, y))
 
         return frontier_cells
     
