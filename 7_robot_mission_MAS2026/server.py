@@ -12,8 +12,7 @@ from matplotlib.figure import Figure
 from mesa.visualization import (
     SolaraViz,
     Slider,
-    make_plot_component,
-    make_space_component,
+    make_space_component
 )
 from mesa.visualization.utils import update_counter
 
@@ -32,9 +31,9 @@ def agent_portrayal(agent):
     """
     if isinstance(agent, RadioactivityCell):
         zone_colors = {
-            "z1": "#e6f4e6",
-            "z2": "#fff3d6",
-            "z3": "#fde2e2",
+            "z1": "#eeffee",
+            "z2": "#f9f4e7",
+            "z3": "#ffefef",
         }
         x, _ = agent.pos
         z1_end = agent.model.width // 3
