@@ -21,6 +21,9 @@ from model import RobotMissionModel
 from agents import GreenRobot, YellowRobot, RedRobot
 from objects import Waste, WasteType, RadioactivityCell, WasteDisposalZone
 
+import warnings
+warnings.filterwarnings("ignore")
+
 
 def agent_portrayal(agent):
     """
