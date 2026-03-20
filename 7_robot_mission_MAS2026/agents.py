@@ -8,12 +8,7 @@ Description: Robot Agent classes for Waste Collection MAS
 import mesa
 from enum import Enum
 
-
-class WasteType(Enum):
-    """Enumerate waste types"""
-    GREEN = "green"
-    YELLOW = "yellow"
-    RED = "red"
+from objects import WasteType
 
 
 class RobotType(Enum):
