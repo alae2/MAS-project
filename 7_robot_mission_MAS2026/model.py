@@ -73,10 +73,10 @@ class RobotMissionModel(mesa.Model):
                     radioactivity_level = float(self.rng.uniform(0.0, 0.33))
                 elif x <= z2_end:
                     zone_name = "z2"
-                    radioactivity_level = float(self.rng.uniform(0.33, 0.66))
+                    radioactivity_level = float(self.rng.uniform(0.34, 0.66))
                 else:
                     zone_name = "z3"
-                    radioactivity_level = float(self.rng.uniform(0.66, 1.0))
+                    radioactivity_level = float(self.rng.uniform(0.67, 1.0))
 
                 cell_agent = RadioactivityCell(self, zone_name, radioactivity_level)
                 self.grid.place_agent(cell_agent, (x, y))
@@ -171,8 +171,10 @@ class RobotMissionModel(mesa.Model):
             waste_here      - list of Waste objects in the current cell that
                               this robot type is allowed to pick up
             agents_here     - list of other robots sharing the current cell
-            neighbors       - list of dicts describing accessible waste in
+            neighbor_waste  - list of dicts describing accessible waste in
                               adjacent cells: {pos, type, waste_type}
+            neighbor_radioactivity - list of dicts describing adjacent cells:
+                              {pos, zone, radioactivity}
             radioactivity   - radioactivity level of the current cell [0, 1]
             zone            - zone name of the current cell ("z1"/"z2"/"z3")
             disposal_zone_x - x-coordinate of the disposal column (static but
@@ -189,7 +191,8 @@ class RobotMissionModel(mesa.Model):
             "agent_pos":      agent.pos,
             "waste_here":     [],
             "agents_here":    [],
-            "neighbors":      [],
+            "neighbor_waste": [],
+            "neighbor_radioactivity": [],
             "radioactivity":  current_cell_radioactivity.radioactivity_level,
             "zone":           current_cell_radioactivity.zone_name,
             "disposal_zone_x": self.disposal_zone_x,
@@ -212,9 +215,15 @@ class RobotMissionModel(mesa.Model):
             and 0 <= agent.pos[1] + dy < self.height
         ]
         for neighbor_pos in raw_neighbors:
+            neighbor_radioactivity = self._radioactivity_map[neighbor_pos]
+            percepts["neighbor_radioactivity"].append({
+                "pos": neighbor_pos,
+                "zone": neighbor_radioactivity.zone_name,
+                "radioactivity": neighbor_radioactivity.radioactivity_level,
+            })
             for obj in self.grid.get_cell_list_contents([neighbor_pos]):
                 if isinstance(obj, Waste) and self._waste_accessible_to_robot(agent, obj.pos, obj.waste_type):
-                    percepts["neighbors"].append({
+                    percepts["neighbor_waste"].append({
                         "pos":        neighbor_pos,
                         "type":       "waste",
                         "waste_type": obj.waste_type,
