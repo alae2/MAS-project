@@ -301,6 +301,7 @@ class RobotMissionModel(mesa.Model):
         return self.perceive(agent)
 
     def _do_pick_up(self, agent, action):
+        
         """Execute pick up action"""
         target_waste = action.get("target")
         

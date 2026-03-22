@@ -45,7 +45,7 @@ class BaseRobot(mesa.Agent):
             "max_zone": None,  # Maximum zone this robot can reach
             "observations": {},  # Observations from last percepts
             "target": None,  # Current target (waste or zone)
-            "mode": "explore"  # Current behavioral mode
+            "mode": "explore"  # Current behavioral mode   # changer la forme des robots / wastes , ajouter les limites , initialiser  waste  en tt type, 
         }
 
     def step_agent(self):
