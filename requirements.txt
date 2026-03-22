@@ -1,2 +1,4 @@
 mesa 
 enum
+matplolib
+pandas
