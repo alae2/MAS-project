@@ -45,11 +45,10 @@ def agent_portrayal(agent):
             "color": "#9b9a9a" if is_frontier else zone_colors.get(agent.zone_name, "white"),
             "marker": "s",
             "alpha": 0.35 if is_frontier else 0.18,
-            "zorder": 0,   # background
         }
 
     if isinstance(agent, WasteDisposalZone):
-        return {"size": 300, "color": "#7674f4", "marker": "s", "alpha": 0.6, "zorder": 1}
+        return {"size": 300, "color": "#7674f4", "marker": "s", "alpha": 0.6}
 
     if isinstance(agent, Waste):
         if agent.waste_type == WasteType.GREEN:
@@ -59,16 +58,16 @@ def agent_portrayal(agent):
         else:
             color = "#fb3e3e"
 
-        return {"size": 60, "color": color, "marker": ".", "zorder": 2}
+        return {"size": 90, "color": color, "marker": "^", "alpha": 0.95}
 
     elif isinstance(agent, GreenRobot):
-        return {"size": 180, "color": "#0b3402", "marker": "o", "alpha": 0.95, "zorder": 3}
+        return {"size": 180, "color": "#0b3402", "marker": "o", "alpha": 0.95}
 
     elif isinstance(agent, YellowRobot):
-        return {"size": 180, "color": "#e4e40a", "marker": "o", "alpha": 0.95, "zorder": 3}
+        return {"size": 180, "color": "#e4e40a", "marker": "o", "alpha": 0.95}
 
     elif isinstance(agent, RedRobot):
-        return {"size": 180, "color": "#641313", "marker": "o", "alpha": 0.95, "zorder": 3}
+        return {"size": 180, "color": "#641313", "marker": "o", "alpha": 0.95}
 
     return {}
 
