@@ -1,6 +1,6 @@
 """
 Group: 7
-Members: Ouissal BOUTOUATOU, Alae TAOUDI, Mohammed SBAIHI
+Members: 
 Date: 
 Description: RobotMission Model for Multi-Agent Waste Collection System
 """
@@ -148,7 +148,7 @@ class RobotMissionModel(mesa.Model):
         # Create initial red waste in z3
         for i in range(n_initial_red_waste):
             waste = Waste(self, WasteType.RED)
-            x = self.rng.integers(z2_end + 1, width)
+            x = self.rng.integers(z2_end + 1, width-1)
             y = self.rng.integers(0, height)
             self.grid.place_agent(waste, (x, y))
         
@@ -157,63 +157,69 @@ class RobotMissionModel(mesa.Model):
 
     def perceive(self, agent):
         """
-        Provide percepts: observations from agent's current cell and neighbors.
-        Includes target frontier and radioactivity information.
-        
-        Args:
-            agent: The agent perceiving
-            
-        Returns:
-            percepts: Dictionary with observations
+        Provide percepts: observations from the agent's current cell and its
+        four Von Neumann neighbors.
+ 
+        Percepts contain only dynamic, observable information, what is
+        physically present on the grid right now. Static environment constants
+        (grid dimensions, zone boundaries, frontier coordinates) are given to
+        each robot once at __init__ time and stored in their knowledge base;
+        they do not need to be re-sent every step.
+ 
+        Returns a dictionary with:
+            agent_pos       - current (x, y) position
+            waste_here      - list of Waste objects in the current cell that
+                              this robot type is allowed to pick up
+            agents_here     - list of other robots sharing the current cell
+            neighbors       - list of dicts describing accessible waste in
+                              adjacent cells: {pos, type, waste_type}
+            radioactivity   - radioactivity level of the current cell [0, 1]
+            zone            - zone name of the current cell ("z1"/"z2"/"z3")
+            disposal_zone_x - x-coordinate of the disposal column (static but
+                              needed by RedRobot at runtime for the dispose check;
+                              already stored in knowledge["disposal_x"] so this
+                              is redundant, kept for observability/debugging)
+            action_failed   - False by default; set to True by _do_* methods
+                              when a requested action cannot be executed, so the
+                              agent can detect failure on the next step
         """
-        from agents import GreenRobot, YellowRobot, RedRobot
-        
-        current_cell_radioactivity = self._get_radioactivity_at(agent.pos)
-
+        current_cell_radioactivity = self._radioactivity_map[agent.pos]
+ 
         percepts = {
-            "agent_pos": agent.pos,
-            "waste_here": [],
-            "agents_here": [],
-            "neighbors": [],
-            "target_frontier": None,
-            "radioactivity": current_cell_radioactivity["level"],
-            "zone": current_cell_radioactivity["zone"],
-            "disposal_zone_x": self.disposal_zone_x
+            "agent_pos":      agent.pos,
+            "waste_here":     [],
+            "agents_here":    [],
+            "neighbors":      [],
+            "radioactivity":  current_cell_radioactivity.radioactivity_level,
+            "zone":           current_cell_radioactivity.zone_name,
+            "disposal_zone_x": self.disposal_zone_x,
+            "action_failed":  False,
         }
-        
-        # What's in my cell?
+ 
+        # What is in the agent's current cell?
         cell_contents = self.grid.get_cell_list_contents([agent.pos])
         for obj in cell_contents:
             if isinstance(obj, Waste) and self._waste_accessible_to_robot(agent, obj.pos, obj.waste_type):
                 percepts["waste_here"].append(obj)
             elif isinstance(obj, (GreenRobot, YellowRobot, RedRobot)) and obj != agent:
                 percepts["agents_here"].append(obj)
-        
-        # What's in neighboring cells?
-        neighbors = self.grid.get_neighborhood(
-            agent.pos, moore=False, include_center=False
-        )
-        for neighbor_pos in neighbors:
-            neighbor_contents = self.grid.get_cell_list_contents([neighbor_pos])
-            for obj in neighbor_contents:
+ 
+        # What is in the four neighboring cells?
+        raw_neighbors = [
+            (agent.pos[0] + dx, agent.pos[1] + dy)
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]
+            if 0 <= agent.pos[0] + dx < self.width
+            and 0 <= agent.pos[1] + dy < self.height
+        ]
+        for neighbor_pos in raw_neighbors:
+            for obj in self.grid.get_cell_list_contents([neighbor_pos]):
                 if isinstance(obj, Waste) and self._waste_accessible_to_robot(agent, obj.pos, obj.waste_type):
                     percepts["neighbors"].append({
-                        "pos": neighbor_pos,
-                        "type": "waste",
-                        "waste_type": obj.waste_type
+                        "pos":        neighbor_pos,
+                        "type":       "waste",
+                        "waste_type": obj.waste_type,
                     })
-        
-        # Add target frontier information for navigation
-        z1_end = self.width // 3
-        z2_end = (2 * self.width) // 3
-        
-        if isinstance(agent, GreenRobot):
-            percepts["target_frontier"] = z1_end
-        elif isinstance(agent, YellowRobot):
-            percepts["target_frontier"] = z2_end
-        elif isinstance(agent, RedRobot):
-            percepts["target_frontier"] = self.disposal_zone_x
-        
+ 
         return percepts
 
     def _get_radioactivity_at(self, pos):
