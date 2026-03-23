@@ -27,20 +27,29 @@ Key changes vs original
 
 import mesa
 from agents import GreenRobot, YellowRobot, RedRobot, WasteType
-from objects import RadioactivityAgent, WasteDisposalZone
 
 
 class Waste(mesa.Agent):
-    """Represents a waste item on the grid or in a robot's inventory."""
+    """Represents a waste object in the environment"""
 
-    def __init__(self, model, waste_type: WasteType):
+    def __init__(self, model, waste_type):
+        """
+        Initialize a Waste object.
+        
+        Args:
+            model: Model instance
+            waste_type: WasteType enum
+        """
         super().__init__(model)
         self.waste_type = waste_type
-        self.carried_by = None  # unique_id of carrying robot, or None
+        self.collected = False
+        self.carried_by = None  # Robot unique_id if being carried, None if on ground
 
     def __repr__(self):
-        state = f"carried_by_{self.carried_by}" if self.carried_by is not None else "on_ground"
-        return f"Waste({self.waste_type.value}, {state})"
+        if self.carried_by is not None:
+            return f"Waste({self.waste_type.value}, carried_by_robot_{self.carried_by})"
+        else:
+            return f"Waste({self.waste_type.value}, on_ground)"
 
 
 class RobotMissionModel(mesa.Model):
@@ -48,15 +57,28 @@ class RobotMissionModel(mesa.Model):
 
     def __init__(
         self,
-        width: int = 40,
-        height: int = 20,
-        n_green_robots: int = 5,
-        n_yellow_robots: int = 3,
-        n_red_robots: int = 2,
-        n_initial_green_waste: int = 30,
-        max_steps: int = None,
-        seed: int = None,
+        width=40,
+        height=20,
+        n_green_robots=5,
+        n_yellow_robots=3,
+        n_red_robots=2,
+        n_initial_green_waste=30,
+        max_steps=150,
+        seed=None
     ):
+        """
+        Initialize the RobotMissionModel.
+        
+        Args:
+            width: Grid width
+            height: Grid height
+            n_green_robots: Number of green robots
+            n_yellow_robots: Number of yellow robots
+            n_red_robots: Number of red robots
+            n_initial_green_waste: Number of initial green waste items in z1
+            max_steps: Maximum number of simulation steps
+            seed: Random seed
+        """
         super().__init__(seed=seed)
 
         self.width = width
@@ -81,29 +103,31 @@ class RobotMissionModel(mesa.Model):
             ("z2", (z1_end + 1, z2_end)),
             ("z3", (z2_end + 1, width - 1)),
         ]
-
-        # ------------------------------------------------------------------
-        # Place RadioactivityAgent markers on every cell
-        # ------------------------------------------------------------------
-        for x in range(width):
-            for y in range(height):
-                if x <= z1_end:
-                    zone, level = 1, 0.0
-                elif x <= z2_end:
-                    zone, level = 2, 0.5
-                else:
-                    zone, level = 3, 1.0
-                marker = RadioactivityAgent(self, zone=zone, level=level)
-                self.grid.place_agent(marker, (x, y))
-
-        # ------------------------------------------------------------------
-        # Place WasteDisposalZone markers on the easternmost column
-        # ------------------------------------------------------------------
-        for y in range(height):
-            wdz = WasteDisposalZone(self)
-            self.grid.place_agent(wdz, (width - 1, y))
-
-        # ------------------------------------------------------------------
+        
+        self.radioactivity = [1, 50, 100]  # Radioactivity levels for zones
+        
+        # Logging and statistics
+        self.waste_collected = 0
+        self.waste_disposed = 0
+        self.steps = 0
+        self.max_steps = max_steps
+        
+        # Data collection
+        self.datacollector = mesa.DataCollector(
+            model_reporters={
+                "Green_Waste_Ground": lambda m: self._count_waste(WasteType.GREEN),
+                "Green_Waste_Carried": lambda m: self._count_carried_waste(WasteType.GREEN),
+                "Yellow_Waste_Ground": lambda m: self._count_waste(WasteType.YELLOW),
+                "Yellow_Waste_Carried": lambda m: self._count_carried_waste(WasteType.YELLOW),
+                "Red_Waste_Ground": lambda m: self._count_waste(WasteType.RED),
+                "Red_Waste_Carried": lambda m: self._count_carried_waste(WasteType.RED),
+                "Waste_Disposed": lambda m: m.waste_disposed,
+                "Green_Robots_With_Inventory": lambda m: self._count_robots_with_inventory(GreenRobot),
+                "Yellow_Robots_With_Inventory": lambda m: self._count_robots_with_inventory(YellowRobot),
+                "Red_Robots_With_Inventory": lambda m: self._count_robots_with_inventory(RedRobot),
+            }
+        )
+        
         # Create robots
         # ------------------------------------------------------------------
         for _ in range(n_green_robots):
@@ -132,24 +156,8 @@ class RobotMissionModel(mesa.Model):
             x = int(self.rng.integers(0, z1_end + 1))
             y = int(self.rng.integers(0, height))
             self.grid.place_agent(waste, (x, y))
-
-        # ------------------------------------------------------------------
-        # Data collection
-        # ------------------------------------------------------------------
-        self.datacollector = mesa.DataCollector(
-            model_reporters={
-                "Green_Waste_Ground":            lambda m: m._count_waste(WasteType.GREEN),
-                "Green_Waste_Carried":           lambda m: m._count_carried_waste(WasteType.GREEN),
-                "Yellow_Waste_Ground":           lambda m: m._count_waste(WasteType.YELLOW),
-                "Yellow_Waste_Carried":          lambda m: m._count_carried_waste(WasteType.YELLOW),
-                "Red_Waste_Ground":              lambda m: m._count_waste(WasteType.RED),
-                "Red_Waste_Carried":             lambda m: m._count_carried_waste(WasteType.RED),
-                "Waste_Disposed":                lambda m: m.waste_disposed,
-                "Green_Robots_With_Inventory":   lambda m: m._count_robots_with_inventory(GreenRobot),
-                "Yellow_Robots_With_Inventory":  lambda m: m._count_robots_with_inventory(YellowRobot),
-                "Red_Robots_With_Inventory":     lambda m: m._count_robots_with_inventory(RedRobot),
-            }
-        )
+        
+        # Collect initial data
         self.datacollector.collect(self)
 
     # ======================================================================
@@ -158,68 +166,100 @@ class RobotMissionModel(mesa.Model):
 
     def perceive(self, agent) -> dict:
         """
-        Return a percept dictionary for *agent* based on what is observable
-        from agent's current cell and its four cardinal neighbours ONLY.
-
-        The agent is NEVER told about distant waste.  It must explore to
-        discover it.
-
-        Percept keys
-        ------------
-        agent_pos          : (x, y) — current position
-        zone               : int 1/2/3 — radioactive zone of current cell
-        radioactivity      : float — level of current cell
-        at_disposal_zone   : bool — True if a WasteDisposalZone is here
-        waste_here         : list[Waste] — ground waste in current cell
-        agents_here        : list[robot] — other robots in current cell
-        neighbors          : list[dict] — observable info from adjacent cells
-                             each dict: {pos, zone, waste_type (if waste present)}
+        Provide percepts: observations from agent's current cell and neighbors.
+        Includes target frontier and closest waste information.
+        
+        Args:
+            agent: The agent perceiving
+            
+        Returns:
+            percepts: Dictionary with observations
         """
+        from agents import GreenRobot, YellowRobot, RedRobot
+        
         percepts = {
             "agent_pos": agent.pos,
-            "zone": None,
-            "radioactivity": None,
-            "at_disposal_zone": False,
             "waste_here": [],
             "agents_here": [],
             "neighbors": [],
+            "target_frontier": None,
+            "closest_target_waste": None
         }
-
-        # --- Current cell contents ---
-        cell = self.grid.get_cell_list_contents([agent.pos])
-        for obj in cell:
-            if isinstance(obj, RadioactivityAgent):
-                percepts["zone"] = obj.zone
-                percepts["radioactivity"] = obj.level
-            elif isinstance(obj, WasteDisposalZone):
-                percepts["at_disposal_zone"] = True
-            elif isinstance(obj, Waste) and obj.carried_by is None:
+        
+        # What's in my cell?
+        cell_contents = self.grid.get_cell_list_contents([agent.pos])
+        for obj in cell_contents:
+            if isinstance(obj, Waste) and self._waste_accessible_to_robot(agent, obj.pos, obj.waste_type):
                 percepts["waste_here"].append(obj)
             elif isinstance(obj, (GreenRobot, YellowRobot, RedRobot)) and obj is not agent:
                 percepts["agents_here"].append(obj)
-
-        # --- Four cardinal neighbours ---
-        nb_positions = self.grid.get_neighborhood(
+        
+        # What's in neighboring cells?
+        neighbors = self.grid.get_neighborhood(
             agent.pos, moore=False, include_center=False
         )
-        for nb_pos in nb_positions:
-            nb_info = {"pos": nb_pos, "type": "empty"}
-            nb_cell = self.grid.get_cell_list_contents([nb_pos])
-            for obj in nb_cell:
-                if isinstance(obj, Waste) and obj.carried_by is None:
-                    nb_info["type"] = "waste"
-                    nb_info["waste_type"] = obj.waste_type
-                    break  # report the first waste seen in that cell
-            percepts["neighbors"].append(nb_info)
-
+        for neighbor_pos in neighbors:
+            neighbor_contents = self.grid.get_cell_list_contents([neighbor_pos])
+            for obj in neighbor_contents:
+                if isinstance(obj, Waste) and self._waste_accessible_to_robot(agent, obj.pos, obj.waste_type):
+                    percepts["neighbors"].append({
+                        "pos": neighbor_pos,
+                        "type": "waste",
+                        "waste_type": obj.waste_type
+                    })
+        
+        # Add target frontier information for navigation
+        z1_end = self.width // 3
+        z2_end = (2 * self.width) // 3
+        
+        if isinstance(agent, GreenRobot):
+            percepts["target_frontier"] = z1_end
+        elif isinstance(agent, YellowRobot):
+            percepts["target_frontier"] = z2_end
+        elif isinstance(agent, RedRobot):
+            percepts["target_frontier"] = self.width - 1
+        
+        # Find and report closest waste this robot can handle
+        closest_waste = self._find_closest_target_waste(agent)
+        if closest_waste:
+            percepts["closest_target_waste"] = {
+                "pos": closest_waste.pos,
+                "waste_type": closest_waste.waste_type,
+                "distance": self._manhattan_distance(agent.pos, closest_waste.pos)
+            }
+        
         return percepts
+    
+    def _manhattan_distance(self, pos1, pos2):
+        """Calculate Manhattan distance between two positions"""
+        return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
+    
+    def _find_closest_target_waste(self, robot):
+        """Find the closest waste that this robot type can handle"""
 
-    # ======================================================================
-    # Zone helpers
-    # ======================================================================
-
-    def get_zone_for_pos(self, pos) -> int:
-        x, _ = pos
+        closest_waste = None
+        closest_distance = float('inf')
+        
+        for agent in self.agents:
+            # Only consider waste that's on the ground
+            if not isinstance(agent, Waste) or agent.pos is None or agent.carried_by is not None:
+                continue
+            
+            if not self._waste_accessible_to_robot(robot, agent.pos, agent.waste_type):
+                continue
+            
+            distance = self._manhattan_distance(robot.pos, agent.pos)
+            
+            if distance < closest_distance:
+                closest_distance = distance
+                closest_waste = agent
+        
+        return closest_waste
+    
+    def _waste_accessible_to_robot(self, robot, waste_pos, waste_type):
+        """Check if robot can pick up waste at this position based on waste type and location"""
+        from agents import GreenRobot, YellowRobot, RedRobot, WasteType
+        
         z1_end = self.width // 3
         z2_end = (2 * self.width) // 3
         if x <= z1_end:
@@ -243,11 +283,13 @@ class RobotMissionModel(mesa.Model):
             return waste_type == WasteType.GREEN and zone == 1
 
         elif isinstance(robot, YellowRobot):
-            return waste_type == WasteType.YELLOW and zone in (1, 2)
-
+            # Yellow robots pick yellow waste only at z1/z2 frontier where green robots deposit
+            return waste_type == WasteType.YELLOW and x == z1_end
+        
         elif isinstance(robot, RedRobot):
-            return waste_type == WasteType.RED  # all zones accessible
-
+            # Reds robots pick up red waste from z2/z3 frontier where yellow robots deposit
+            return waste_type == WasteType.RED and x == z2_end
+        
         return False
 
 
@@ -360,19 +402,10 @@ class RobotMissionModel(mesa.Model):
 
         return self.perceive(agent)
 
-    # ------------------------------------------------------------------
-    # Put down (deposit waste on the ground)
-    # ------------------------------------------------------------------
-
-    def _do_put_down(self, agent, action) -> dict:
-        """
-        Robot drops the first waste in its inventory onto its current cell.
-
-        Deposit rules (fixed — no longer restricted to exact frontier column):
-          GreenRobot  → may deposit yellow waste anywhere in z1
-          YellowRobot → may deposit red waste anywhere in z2
-          RedRobot    → should use 'dispose' at the disposal zone instead
-        """
+    def _do_put_down(self, agent, action):
+        """Execute put down action - robot must be at appropriate frontier"""
+        from agents import GreenRobot, YellowRobot, RedRobot, WasteType
+        
         if not agent.inventory:
             return self.perceive(agent)
 
@@ -387,8 +420,15 @@ class RobotMissionModel(mesa.Model):
                 can_deposit = True
 
         elif isinstance(agent, YellowRobot):
-            # Yellow robots deposit red waste in z2
-            if waste.waste_type == WasteType.RED and zone == 2:
+            # Yellow robots deposit red waste at z2/z3 frontier
+            waste = agent.inventory[0]
+            if waste.waste_type == WasteType.RED and x == z2_end:
+                can_deposit = True
+        
+        elif isinstance(agent, RedRobot):
+            # Red robots dispose in the waste disposal zone (end of z3, eastmost position)
+            waste = agent.inventory[0]
+            if waste.waste_type == WasteType.RED and x == self.width - 1:
                 can_deposit = True
 
         if not can_deposit:
@@ -410,11 +450,10 @@ class RobotMissionModel(mesa.Model):
 
         if not agent.inventory:
             return self.perceive(agent)
-
-        # Verify agent is actually at the disposal zone
-        cell = self.grid.get_cell_list_contents([agent.pos])
-        at_disposal = any(isinstance(obj, WasteDisposalZone) for obj in cell)
-        if not at_disposal:
+        
+        # Check if agent is at the disposal zone (eastmost position)
+        x, y = agent.pos
+        if x != self.width - 1:
             return self.perceive(agent)
 
         waste = agent.inventory.pop(0)
@@ -438,29 +477,91 @@ class RobotMissionModel(mesa.Model):
         ).shuffle_do("step_agent")
 
         self.datacollector.collect(self)
+        
+        # Print step diagnostics
+        print(f"Step {self.steps}/{self.max_steps if self.max_steps else 'unlimited'}: "
+              f"Green W: {self._count_waste(WasteType.GREEN)} | "
+              f"Yellow W: {self._count_waste(WasteType.YELLOW)} | "
+              f"Red W: {self._count_waste(WasteType.RED)} | "
+              f"Disposed: {self.waste_disposed}")
 
-        print(
-            f"Step {self.steps}"
-            f"{'/' + str(self.max_steps) if self.max_steps else ''}: "
-            f"Green={self._count_waste(WasteType.GREEN)} "
-            f"Yellow={self._count_waste(WasteType.YELLOW)} "
-            f"Red={self._count_waste(WasteType.RED)} "
-            f"Disposed={self.waste_disposed}"
-        )
+    def get_zone_for_pos(self, pos):
+        """Determine which zone a position belongs to"""
+        x, _ = pos
+        z1_end = self.width // 3
+        z2_end = (2 * self.width) // 3
+        
+        if x <= z1_end:
+            return 1
+        elif x <= z2_end:
+            return 2
+        else:
+            return 3
+    
+    def get_frontier_cells_for_robot(self, robot):
+        """Get frontier cells where robot should deposit waste"""
+        from agents import GreenRobot, YellowRobot, RedRobot
+        
+        z1_end = self.width // 3
+        z2_end = (2 * self.width) // 3
+        
+        frontier_cells = []
+        
+        if isinstance(robot, GreenRobot):
+            # Green robots deposit yellow waste at z1/z2 frontier (x = z1_end)
+            for y in range(self.height):
+                frontier_cells.append((z1_end, y))
+        
+        elif isinstance(robot, YellowRobot):
+            # Yellow robots deposit red waste at z2/z3 frontier (x = z2_end)
+            for y in range(self.height):
+                frontier_cells.append((z2_end, y))
+        
+        elif isinstance(robot, RedRobot):
+            # Red robots dispose at disposal zone 
+            for y in range(self.height):
+                frontier_cells.append((self.width - 1, y))
 
-    # ======================================================================
-    # Statistics helpers
-    # ======================================================================
+        return frontier_cells
+    
+    def get_pickup_frontier_for_robot(self, robot):
+        """Get cells where robot should pick up waste"""
+        from agents import GreenRobot, YellowRobot, RedRobot
+        
+        z1_end = self.width // 3
+        z2_end = (2 * self.width) // 3
+        
+        pickup_cells = []
+        
+        if isinstance(robot, GreenRobot):
+            # Green robots pick up green waste from z1
+            for x in range(0, z1_end + 1):
+                for y in range(self.height):
+                    pickup_cells.append((x, y))
+        
+        elif isinstance(robot, YellowRobot):
+            # Yellow robots pick up yellow waste from z1/z2 frontier
+            for y in range(self.height):
+                pickup_cells.append((z1_end, y))
+        
+        elif isinstance(robot, RedRobot):
+            # Red robots pick up red waste from z2/z3 frontier
+            for y in range(self.height):
+                pickup_cells.append((z2_end, y))
+        
+        return pickup_cells
 
-    def _count_waste(self, waste_type: WasteType) -> int:
-        """Count waste of given type lying on the ground (not carried)."""
-        return sum(
-            1 for a in self.agents
-            if isinstance(a, Waste)
-            and a.waste_type == waste_type
-            and a.carried_by is None
-            and a.pos is not None
-        )
+    def _count_waste(self, waste_type):
+        """Count waste of given type in the environment (on grid, not in inventory/carried)"""
+        count = 0
+        # Iterate through all grid cells and count waste on the ground
+        for x in range(self.width):
+            for y in range(self.height):
+                cell_contents = self.grid.get_cell_list_contents([(x, y)])
+                for obj in cell_contents:
+                    if isinstance(obj, Waste) and obj.waste_type == waste_type and obj.carried_by is None:
+                        count += 1
+        return count
 
     def _count_carried_waste(self, waste_type: WasteType) -> int:
         """Count waste of given type currently being carried by a robot."""

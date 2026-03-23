@@ -1,0 +1,7 @@
+mesa==3.3.0
+solara
+matplotlib
+seaborn
+pandas
+numpy
+svg-pltmarker

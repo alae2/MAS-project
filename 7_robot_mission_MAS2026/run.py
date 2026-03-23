@@ -1,8 +1,14 @@
 """
 Group: 7
+<<<<<<< HEAD
 Members:
 Date:
 Description: Script to run the RobotMission simulation.
+=======
+Members: Ouissal BOUTOUATOU, Alae TAOUDI, Mohammed SBAIHI
+Date: March 18, 2026
+Description: Script to run the RobotMission simulation
+>>>>>>> c29a05001d6440b6e38685de0b52567d978ac6e2
 """
 
 import os
@@ -11,6 +17,7 @@ import matplotlib.pyplot as plt
 
 
 def run_simulation(
+<<<<<<< HEAD
     n_steps: int = 150,
     width: int = 40,
     height: int = 20,
@@ -22,6 +29,35 @@ def run_simulation(
 ):
     """Run the robot waste collection simulation."""
 
+=======
+    n_steps=150,
+    width=40,
+    height=20,
+    n_green_robots=7,
+    n_yellow_robots=5,
+    n_red_robots=3,
+    n_initial_green_waste=10,
+    n_initial_yellow_waste=5,
+    n_initial_red_waste=3,
+    seed=7
+):
+    """
+    Run the robot waste collection simulation.
+    
+    Args:
+        n_steps: Number of simulation steps
+        width: Grid width
+        height: Grid height
+        n_green_robots: Number of green robots
+        n_yellow_robots: Number of yellow robots
+        n_red_robots: Number of red robots
+        n_initial_green_waste: Number of initial green waste items
+        n_initial_yellow_waste: Number of initial yellow waste items
+        n_initial_red_waste: Number of initial red waste items
+        seed: Random seed for reproducibility
+    """
+    
+>>>>>>> c29a05001d6440b6e38685de0b52567d978ac6e2
     print("------ ROBOT WASTE COLLECTION MULTI-AGENT SYSTEM ------")
     print(f"\nSimulation Parameters:")
     print(f"  Grid: {width}x{height}")
@@ -29,6 +65,8 @@ def run_simulation(
     print(f"  Yellow Robots: {n_yellow_robots}")
     print(f"  Red Robots: {n_red_robots}")
     print(f"  Initial Green Waste: {n_initial_green_waste}")
+    print(f"  Initial Yellow Waste: {n_initial_yellow_waste}")
+    print(f"  Initial Red Waste: {n_initial_red_waste}")
     print(f"  Steps: {n_steps}")
     print("\n" + "-" * 55 + "\n")
 
@@ -39,6 +77,8 @@ def run_simulation(
         n_yellow_robots=n_yellow_robots,
         n_red_robots=n_red_robots,
         n_initial_green_waste=n_initial_green_waste,
+        n_initial_yellow_waste=n_initial_yellow_waste,
+        n_initial_red_waste=n_initial_red_waste,
         max_steps=None,
         seed=seed,
     )
@@ -143,7 +183,13 @@ if __name__ == "__main__":
         n_yellow_robots=2,
         n_red_robots=1,
         n_initial_green_waste=10,
+<<<<<<< HEAD
         seed=7,
+=======
+        n_initial_yellow_waste=5,
+        n_initial_red_waste=3,
+        seed=7
+>>>>>>> c29a05001d6440b6e38685de0b52567d978ac6e2
     )
 
     plot_results(data)
