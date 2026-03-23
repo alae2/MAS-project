@@ -93,8 +93,23 @@ class RobotMissionModel(mesa.Model):
         # Logging and statistics
         self.waste_collected = 0
         self.waste_disposed = 0
+        self.green_to_yellow_transformations = 0
+        self.yellow_to_red_transformations = 0
         self.steps = 0
         self.max_steps = max_steps
+
+        # Per-agent pickup timing (first -> second waste of same transform type)
+        self._green_first_pick_step = {}
+        self._yellow_first_pick_step = {}
+        self._green_collection_intervals = []
+        self._yellow_collection_intervals = []
+
+        # Precompute zone sizes for coverage ratios
+        self._zone_cell_counts = {
+            "z1": (z1_end + 1) * self.height,
+            "z2": (z2_end - z1_end) * self.height,
+            "z3": (self.width - (z2_end + 1)) * self.height,
+        }
         
         # Data collection
         self.datacollector = mesa.DataCollector(
@@ -106,6 +121,13 @@ class RobotMissionModel(mesa.Model):
                 "Red_Waste_Ground": lambda m: self._count_waste(WasteType.RED),
                 "Red_Waste_Carried": lambda m: self._count_carried_waste(WasteType.RED),
                 "Waste_Disposed": lambda m: m.waste_disposed,
+                "Green_to_Yellow_Transformations": lambda m: m.green_to_yellow_transformations,
+                "Yellow_to_Red_Transformations": lambda m: m.yellow_to_red_transformations,
+                "Avg_Green_Collection_Time": lambda m: m._avg_collection_time("green"),
+                "Avg_Yellow_Collection_Time": lambda m: m._avg_collection_time("yellow"),
+                "Visited_Ratio_Z1": lambda m: m._visited_ratio_for_zone("z1"),
+                "Visited_Ratio_Z2": lambda m: m._visited_ratio_for_zone("z2"),
+                "Visited_Ratio_Z3": lambda m: m._visited_ratio_for_zone("z3"),
                 "Green_Robots_With_Inventory": lambda m: self._count_robots_with_inventory(GreenRobot),
                 "Yellow_Robots_With_Inventory": lambda m: self._count_robots_with_inventory(YellowRobot),
                 "Red_Robots_With_Inventory": lambda m: self._count_robots_with_inventory(RedRobot),
@@ -324,10 +346,28 @@ class RobotMissionModel(mesa.Model):
             return self.perceive(agent)
         
         # Pick up waste
+        prev_count = sum(1 for w in agent.inventory if w.waste_type == target_waste.waste_type)
         target_waste.carried_by = agent.unique_id
         agent.inventory.append(target_waste)
         self.grid.remove_agent(target_waste)
         self.waste_collected += 1
+
+        # Track first->second pickup intervals used for transformation readiness.
+        if isinstance(agent, GreenRobot) and target_waste.waste_type == WasteType.GREEN:
+            if prev_count == 0:
+                self._green_first_pick_step[agent.unique_id] = self.steps
+            elif prev_count == 1:
+                first_step = self._green_first_pick_step.pop(agent.unique_id, None)
+                if first_step is not None:
+                    self._green_collection_intervals.append(self.steps - first_step)
+
+        elif isinstance(agent, YellowRobot) and target_waste.waste_type == WasteType.YELLOW:
+            if prev_count == 0:
+                self._yellow_first_pick_step[agent.unique_id] = self.steps
+            elif prev_count == 1:
+                first_step = self._yellow_first_pick_step.pop(agent.unique_id, None)
+                if first_step is not None:
+                    self._yellow_collection_intervals.append(self.steps - first_step)
         
         return self.perceive(agent)
 
@@ -365,6 +405,7 @@ class RobotMissionModel(mesa.Model):
                 # Create 1 yellow waste
                 new_waste = Waste(self, WasteType.YELLOW)
                 agent.inventory.append(new_waste)
+                self.green_to_yellow_transformations += 1
         
         # Yellow to Red: 2 yellow into 1 red
         elif from_type == WasteType.YELLOW and to_type == WasteType.RED:
@@ -389,6 +430,7 @@ class RobotMissionModel(mesa.Model):
                 # Create 1 red waste
                 new_waste = Waste(self, WasteType.RED)
                 agent.inventory.append(new_waste)
+                self.yellow_to_red_transformations += 1
         
         return self.perceive(agent)
 
@@ -562,6 +604,36 @@ class RobotMissionModel(mesa.Model):
         """Count robots of given type that carry waste"""
         return sum(1 for agent in self.agents 
                   if isinstance(agent, robot_type) and len(agent.inventory) > 0)
+
+    def _avg_collection_time(self, robot_color):
+        """Return cumulative average first->second pickup interval for a robot color."""
+        if robot_color == "green":
+            intervals = self._green_collection_intervals
+        else:
+            intervals = self._yellow_collection_intervals
+
+        if not intervals:
+            return 0.0
+        return float(sum(intervals) / len(intervals))
+
+    def _visited_ratio_for_zone(self, zone_name):
+        """Return visited-cell ratio for one zone using all robots' visited memory."""
+        visited_cells = set()
+        for agent in self.agents:
+            if isinstance(agent, (GreenRobot, YellowRobot, RedRobot)):
+                visited_cells.update(agent.knowledge.get("visited", set()))
+
+        zone_total = self._zone_cell_counts.get(zone_name, 0)
+        if zone_total <= 0:
+            return 0.0
+
+        zone_visited = 0
+        for pos in visited_cells:
+            cell = self._radioactivity_map.get(pos)
+            if cell is not None and cell.zone_name == zone_name:
+                zone_visited += 1
+
+        return float(zone_visited / zone_total)
 
     def get_waste_carrier(self, waste):
         """Get the robot carrying a specific waste (by Robot unique_id), or None if on ground"""

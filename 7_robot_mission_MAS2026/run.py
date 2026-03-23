@@ -5,6 +5,8 @@ Date: March 18, 2026
 Description: Script to run the RobotMission simulation
 """
 
+from os import mkdir
+
 from model import RobotMissionModel
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -163,8 +165,8 @@ def plot_results(model_data):
             fontfamily='monospace', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
     plt.tight_layout()
-    plt.savefig('figs/robot_mission_results.png', dpi=150, bbox_inches='tight')
-    print("\n Results saved to 'figs/robot_mission_results.png'")
+    plt.savefig('figures/robot_mission_results.png', dpi=150, bbox_inches='tight')
+    print("\n Results saved to 'figures/robot_mission_results.png'")
 
 
 if __name__ == "__main__":
