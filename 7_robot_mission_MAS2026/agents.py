@@ -42,7 +42,7 @@ class BaseRobot(mesa.Agent):
             "sweep_dir": "east", # Exploration sweep direction
             "visited": set(),    # Cells visited by this robot
             "move_history": [],  # Recent moves (pos tuples)
-            "frontier_check_interval": 8,  # Steps between frontier checks
+            "frontier_check_interval": model.width+model.height,  # Steps between frontier checks
             "steps_since_frontier": 0,     # Counter for frontier checks
             "frontier_mode": False,
             "frontier_dir": "down",
@@ -86,17 +86,7 @@ class BaseRobot(mesa.Agent):
 
     def can_move_to(self, position):
         """Check if robot can move to an adjacent position using local radioactivity percepts."""
-        current_pos = self.knowledge.get("pos")
         observations = self.knowledge.get("observations", {})
-
-        if current_pos is None:
-            return False
-        if position == current_pos:
-            return True
-
-        # Movement is local (Von Neumann neighbor only).
-        if abs(position[0] - current_pos[0]) + abs(position[1] - current_pos[1]) != 1:
-            return False
 
         target_zone = None
         for cell in observations.get("neighbor_radioactivity", []):
@@ -263,17 +253,16 @@ class BaseRobot(mesa.Agent):
             return None
 
         if frontier_name == "z1_z2":
-            at_frontier = self._is_frontier_cell(pos, "z1", "z2")
-            if not at_frontier:
-                if current_zone == "z1":
-                    return {"action": "move", "target_pos": (pos[0] + 1, pos[1])}
-                return {"action": "move", "target_pos": (pos[0] - 1, pos[1])}
+            left_zone, right_zone = "z1", "z2"
         else:
-            at_frontier = self._is_frontier_cell(pos, "z2", "z3")
-            if not at_frontier:
-                if current_zone in ("z1", "z2"):
-                    return {"action": "move", "target_pos": (pos[0] + 1, pos[1])}
-                return {"action": "move", "target_pos": (pos[0] - 1, pos[1])}
+            left_zone, right_zone = "z2", "z3"
+
+        # Keep scan on the left-side frontier column only (handoff column).
+        at_frontier = self._is_frontier_cell(pos, left_zone, right_zone, side="left")
+        if not at_frontier:
+            if current_zone == left_zone:
+                return {"action": "move", "target_pos": (pos[0] + 1, pos[1])}
+            return {"action": "move", "target_pos": (pos[0] - 1, pos[1])}
 
         # Scan vertically along frontier
         direction = knowledge["frontier_dir"]

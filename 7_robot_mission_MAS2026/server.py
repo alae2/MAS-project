@@ -61,22 +61,22 @@ def agent_portrayal(agent):
 
     if isinstance(agent, Waste):
         if agent.waste_type == WasteType.GREEN:
-            color = "#569E6C"
+            color = "#00A210"
         elif agent.waste_type == WasteType.YELLOW:
-            color = "#ccd05a"
+            color = "#c4cb00"
         else:
-            color = "#ca6363"
+            color = "#c60000"
 
         return {"size": 180, "color": color, "marker": WASTE_MARKER, "alpha": 0.95, "linewidth": 0}
 
     elif isinstance(agent, GreenRobot):
-        return {"size": 300, "color": "#24920c", "marker": ROBOT_MARKER, "alpha": 0.95, "linewidth": 0}
+        return {"size": 300, "color": "#00ff91", "marker": ROBOT_MARKER, "alpha": 0.95, "linewidth": 0}
 
     elif isinstance(agent, YellowRobot):
-        return {"size": 300, "color": "#bdbd1d", "marker": ROBOT_MARKER, "alpha": 0.95, "linewidth": 0}
+        return {"size": 300, "color": "#ffbb00", "marker": ROBOT_MARKER, "alpha": 0.95, "linewidth": 0}
 
     elif isinstance(agent, RedRobot):
-        return {"size": 300, "color": "#B41515", "marker": ROBOT_MARKER, "alpha": 0.95, "linewidth": 0}
+        return {"size": 300, "color": "#E5007A", "marker": ROBOT_MARKER, "alpha": 0.95, "linewidth": 0}
 
     return {}
 
@@ -185,7 +185,7 @@ model_params = {
     "n_initial_green_waste": Slider("Initial Green Waste", value=12, min=5, max=50, step=2),
     "n_initial_yellow_waste": Slider("Initial Yellow Waste", value=4, min=0, max=40, step=2),
     "n_initial_red_waste": Slider("Initial Red Waste", value=2, min=0, max=30, step=2),
-    "max_steps": Slider("Max Steps", value=150, min=50, max=500, step=25),
+    "max_steps": Slider("Max Steps", value=150, min=50, max=1000, step=25),
 }
 
 SpaceGraph = make_space_component(agent_portrayal, backend="matplotlib")
