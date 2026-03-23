@@ -54,6 +54,10 @@ This project implements a **Multi-Agent Based Simulation (MABS)** of a robot was
 - **Distributed problem solving**: Each sub-problem (collection, transformation, transport) is solved by a specialized agent type; the global solution (complete disposal) emerges from local behaviors.
 - **No direct communication** (Step 1): Agents do not send messages to each other. All coordination is implicit via the environment.
 
+![MAS-UML-1](figures/uml-agents-1.png)
+![Objects](figures/uml-objects-1.png)
+
+
 ### Agent Classification
 
 Our robots are **cognitive agents**:
@@ -158,7 +162,7 @@ percepts = {
 
 Each robot type receives exactly the information it needs, no more. Static values are set once at `__init__`; dynamic observations arrive every step via percepts.
 
-![Knowledge base](figs/fig8_knowledge.png)
+![Knowledge base](figures/uml-knowledge-1.png)
 
 The design principle: `deliberate()` reads only from `knowledge`. It never calls `self.model`, `self.grid`, or any attribute outside its argument. Zone boundaries and frontier positions are stored in `knowledge` at initialisation so the deliberation function remains fully encapsulated.
 
@@ -260,7 +264,7 @@ Yellow and red robots can also pick waste directly from the frontier column, thi
 
 Rather than random walk, robots use a **boustrophedon (lawnmower) sweep**:
 
-![Sweep strategy](figs/fig3_sweep.png)
+![Sweep strategy](figures/exploration.png)
 
 The left panel shows the sweep pattern, the robot passes east along a row, steps south, then sweeps back west, covering the zone row by row. The right panel shows `_prefer_unvisited()` in action: when the natural sweep candidate is already visited, the robot picks a random unvisited neighbor instead (highlighted in yellow), maximising coverage.
 

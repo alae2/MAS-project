@@ -15,6 +15,7 @@ from mesa.visualization import (
     make_space_component
 )
 from mesa.visualization.utils import update_counter
+from svg_pltmarker import get_marker_from_svg
 
 from model import RobotMissionModel
 from agents import GreenRobot, YellowRobot, RedRobot
@@ -22,6 +23,14 @@ from objects import Waste, WasteType, RadioactivityCell, WasteDisposalZone
 
 import warnings
 warnings.filterwarnings("ignore")
+
+
+# Markers
+ROBOT_MARKER = get_marker_from_svg(filepath="markers/robot.svg")
+WASTE_MARKER = get_marker_from_svg(filepath="markers/waste_marker.svg")
+DEPOSAL_ZONE_MARKER = get_marker_from_svg(filepath="markers/waste_disposal.svg")
+
+
 
 
 def agent_portrayal(agent):
@@ -48,26 +57,26 @@ def agent_portrayal(agent):
         }
 
     if isinstance(agent, WasteDisposalZone):
-        return {"size": 300, "color": "#7674f4", "marker": "s", "alpha": 0.6}
+        return {"size": 500, "color": "#ff0000", "marker": DEPOSAL_ZONE_MARKER, "alpha": 0.6, "linewidth": 0}
 
     if isinstance(agent, Waste):
         if agent.waste_type == WasteType.GREEN:
-            color = "#059934"
+            color = "#569E6C"
         elif agent.waste_type == WasteType.YELLOW:
-            color = "#feb924"
+            color = "#ccd05a"
         else:
-            color = "#fb3e3e"
+            color = "#ca6363"
 
-        return {"size": 90, "color": color, "marker": "^", "alpha": 0.95}
+        return {"size": 180, "color": color, "marker": WASTE_MARKER, "alpha": 0.95, "linewidth": 0}
 
     elif isinstance(agent, GreenRobot):
-        return {"size": 180, "color": "#0b3402", "marker": "o", "alpha": 0.95}
+        return {"size": 300, "color": "#24920c", "marker": ROBOT_MARKER, "alpha": 0.95, "linewidth": 0}
 
     elif isinstance(agent, YellowRobot):
-        return {"size": 180, "color": "#e4e40a", "marker": "o", "alpha": 0.95}
+        return {"size": 300, "color": "#bdbd1d", "marker": ROBOT_MARKER, "alpha": 0.95, "linewidth": 0}
 
     elif isinstance(agent, RedRobot):
-        return {"size": 180, "color": "#641313", "marker": "o", "alpha": 0.95}
+        return {"size": 300, "color": "#B41515", "marker": ROBOT_MARKER, "alpha": 0.95, "linewidth": 0}
 
     return {}
 
@@ -168,15 +177,15 @@ def DisposalChart(model):
 
 # Model parameters
 model_params = {
-    "width": Slider("Grid Width", value=40, min=20, max=60, step=5),
+    "width": Slider("Grid Width", value=20, min=10, max=60, step=5),
     "height": Slider("Grid Height", value=20, min=10, max=30, step=5),
     "n_green_robots": Slider("Green Robots", value=5, min=1, max=10, step=1),
     "n_yellow_robots": Slider("Yellow Robots", value=3, min=1, max=8, step=1),
     "n_red_robots": Slider("Red Robots", value=2, min=1, max=5, step=1),
-    "n_initial_green_waste": Slider("Initial Green Waste", value=30, min=5, max=50, step=5),
-    "n_initial_yellow_waste": Slider("Initial Yellow Waste", value=5, min=0, max=40, step=5),
-    "n_initial_red_waste": Slider("Initial Red Waste", value=3, min=0, max=30, step=5),
-    "max_steps": Slider("Max Steps", value=150, min=50, max=500, step=50),
+    "n_initial_green_waste": Slider("Initial Green Waste", value=12, min=5, max=50, step=2),
+    "n_initial_yellow_waste": Slider("Initial Yellow Waste", value=4, min=0, max=40, step=2),
+    "n_initial_red_waste": Slider("Initial Red Waste", value=2, min=0, max=30, step=2),
+    "max_steps": Slider("Max Steps", value=150, min=50, max=500, step=25),
 }
 
 SpaceGraph = make_space_component(agent_portrayal, backend="matplotlib")
