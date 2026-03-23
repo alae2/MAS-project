@@ -162,7 +162,7 @@ class RobotMissionModel(mesa.Model):
  
         Percepts contain only dynamic, observable information, what is
         physically present on the grid right now. Static environment constants
-        (grid dimensions, zone boundaries, frontier coordinates) are given to
+        like grid dimensions are given to
         each robot once at __init__ time and stored in their knowledge base;
         they do not need to be re-sent every step.
  
@@ -195,7 +195,6 @@ class RobotMissionModel(mesa.Model):
             "neighbor_radioactivity": [],
             "radioactivity":  current_cell_radioactivity.radioactivity_level,
             "zone":           current_cell_radioactivity.zone_name,
-            "disposal_zone_x": self.disposal_zone_x,
             "action_failed":  False,
         }
  

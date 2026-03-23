@@ -37,7 +37,6 @@ class BaseRobot(mesa.Agent):
         self.knowledge = {
             "pos": None,
             "inventory": [],  # Agent's belief about what it carries
-            "max_zone": None,    # Maximum x-coordinate this robot can reach 
             "observations": {},  # Observations from last percepts
             "mode": "explore",   # Current target (waste or zone)
             "sweep_dir": "east", # Exploration sweep direction
@@ -86,9 +85,33 @@ class BaseRobot(mesa.Agent):
         raise NotImplementedError
 
     def can_move_to(self, position):
-        """Check if robot can move to position based on zone restrictions."""
-        x, _ = position
-        return x <= self.knowledge["max_zone"]
+        """Check if robot can move to an adjacent position using local radioactivity percepts."""
+        current_pos = self.knowledge.get("pos")
+        observations = self.knowledge.get("observations", {})
+
+        if current_pos is None:
+            return False
+        if position == current_pos:
+            return True
+
+        # Movement is local (Von Neumann neighbor only).
+        if abs(position[0] - current_pos[0]) + abs(position[1] - current_pos[1]) != 1:
+            return False
+
+        target_zone = None
+        for cell in observations.get("neighbor_radioactivity", []):
+            if cell.get("pos") == position:
+                target_zone = cell.get("zone")
+                break
+
+        if target_zone is None:
+            return False
+
+        if self.robot_type == RobotType.GREEN:
+            return target_zone == "z1"
+        if self.robot_type == RobotType.YELLOW:
+            return target_zone in ("z1", "z2")
+        return target_zone in ("z1", "z2", "z3")
 
     def _plan_exploration_step(self, pos):
         """Plan a systematic sweep within the accessible zone."""
@@ -281,8 +304,6 @@ class GreenRobot(BaseRobot):
 
     def __init__(self, model):
         super().__init__(model, RobotType.GREEN)
-        z1_end = model.zone_boundaries[0][1][1]
-        self.knowledge["max_zone"] = z1_end
 
     def deliberate(self, knowledge):
         """Green robot decision logic with intelligent pathfinding"""
@@ -332,9 +353,6 @@ class YellowRobot(BaseRobot):
 
     def __init__(self, model):
         super().__init__(model, RobotType.YELLOW)
-        z1_end = model.zone_boundaries[0][1][1]
-        z2_end = model.zone_boundaries[1][1][1]
-        self.knowledge["max_zone"] = z2_end
 
     def deliberate(self, knowledge):
         """Yellow robot decision logic with intelligent pathfinding"""
@@ -394,7 +412,6 @@ class RedRobot(BaseRobot):
 
     def __init__(self, model):
         super().__init__(model, RobotType.RED)
-        self.knowledge["max_zone"] = model.width - 1
         self.knowledge["disposal_x"] = model.disposal_zone_x
 
     def deliberate(self, knowledge):
