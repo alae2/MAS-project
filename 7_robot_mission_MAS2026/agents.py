@@ -57,7 +57,7 @@ class BaseRobot(mesa.Agent):
     def __init__(self, model, robot_type: RobotType):
         super().__init__(model)
         self.robot_type = robot_type
-        self.inventory: list = []  # list of Waste objects
+        self.inventory: list = []  # list of Waste objectsf     
 
         self.knowledge = {
             "pos": None,
