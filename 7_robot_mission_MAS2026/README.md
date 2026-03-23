@@ -23,7 +23,7 @@
 
 This project implements a **Multi-Agent Based Simulation (MABS)** of a robot waste collection mission. Multiple autonomous robots collaborate to collect, transform, and safely dispose of radioactive waste across a three-zone environment with varying levels of radioactivity.
 
-![Grid layout](figs/fig1_grid_layout.png)
+![Grid layout](figures/fig1_grid_layout.png)
 
 ### Mission Summary
 
@@ -35,7 +35,7 @@ This project implements a **Multi-Agent Based Simulation (MABS)** of a robot was
 
 ### Waste Processing Pipeline
 
-![Pipeline](figs/fig2_pipeline.png)
+![Pipeline](figures/fig2_pipeline.png)
 
 ```
 [Green Waste × 2] -> [Green Robot] -> [Yellow Waste × 1]
