@@ -37,6 +37,7 @@ class BaseRobot(mesa.Agent):
         self.knowledge = {
             "pos": None,
             "inventory": [],  # Agent's belief about what it carries
+            "exploration_mode": getattr(model, "exploration_mode", "sweep"),
             "observations": {},  # Observations from last percepts
             "mode": "explore",   # Current target (waste or zone)
             "sweep_dir": "east", # Exploration sweep direction
@@ -105,6 +106,13 @@ class BaseRobot(mesa.Agent):
 
     def _plan_exploration_step(self, pos):
         """Plan a systematic sweep within the accessible zone."""
+        mode = self.knowledge.get("exploration_mode", "sweep")
+        if mode == "random":
+            return self._plan_random_step(pos)
+        if mode == "bfs":
+            # BFS reserved but not implemented yet: use sweep behavior.
+            pass
+
         width = self.knowledge["grid_width"]
         height = self.knowledge["grid_height"]
         direction = self.knowledge.get("sweep_dir", "east")
@@ -138,6 +146,13 @@ class BaseRobot(mesa.Agent):
 
     def _plan_exploration_step_in_range(self, pos, min_x, max_x):
         """Plan a sweep constrained to a given x-range."""
+        mode = self.knowledge.get("exploration_mode", "sweep")
+        if mode == "random":
+            return self._plan_random_step_in_range(pos, min_x, max_x)
+        if mode == "bfs":
+            # BFS reserved but not implemented yet: use sweep behavior.
+            pass
+
         width = self.knowledge["grid_width"]
         height = self.knowledge["grid_height"]
         direction = self.knowledge.get("sweep_dir", "east")
@@ -164,6 +179,41 @@ class BaseRobot(mesa.Agent):
 
         self.knowledge["sweep_dir"] = "east"
         return self._prefer_unvisited(pos, (pos[0], max(0, pos[1] - 1)))
+
+    def _plan_random_step(self, pos):
+        """Pick one valid neighboring move uniformly at random."""
+        width = self.knowledge["grid_width"]
+        height = self.knowledge["grid_height"]
+
+        candidates = [
+            (pos[0] + dx, pos[1] + dy)
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]
+        ]
+        valid = [
+            c for c in candidates
+            if 0 <= c[0] < width and 0 <= c[1] < height and self.can_move_to(c)
+        ]
+        if not valid:
+            return None
+        return self.random.choice(valid)
+
+    def _plan_random_step_in_range(self, pos, min_x, max_x):
+        """Pick one valid neighboring move uniformly at random within an x-range."""
+        width = self.knowledge["grid_width"]
+        height = self.knowledge["grid_height"]
+
+        candidates = [
+            (pos[0] + dx, pos[1] + dy)
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]
+        ]
+        valid = [
+            c for c in candidates
+            if 0 <= c[0] < width and 0 <= c[1] < height
+            and min_x <= c[0] <= max_x and self.can_move_to(c)
+        ]
+        if not valid:
+            return None
+        return self.random.choice(valid)
 
     def _remember_move(self, pos):
         """Track recent positions to avoid short loops."""

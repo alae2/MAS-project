@@ -12,7 +12,8 @@ from matplotlib.figure import Figure
 from mesa.visualization import (
     SolaraViz,
     Slider,
-    make_space_component
+    make_space_component,
+
 )
 from mesa.visualization.utils import update_counter
 from svg_pltmarker import get_marker_from_svg
@@ -54,10 +55,11 @@ def agent_portrayal(agent):
             "color": "#9b9a9a" if is_frontier else zone_colors.get(agent.zone_name, "white"),
             "marker": "s",
             "alpha": 0.35 if is_frontier else 0.18,
+            "zorder": 0 if is_frontier else -1,
         }
 
     if isinstance(agent, WasteDisposalZone):
-        return {"size": 500, "color": "#ff0000", "marker": DEPOSAL_ZONE_MARKER, "alpha": 0.6, "linewidth": 0}
+        return {"size": 500, "color": "#ff0000", "marker": DEPOSAL_ZONE_MARKER, "alpha": 0.6, "linewidth": 0, "zorder": 1}
 
     if isinstance(agent, Waste):
         if agent.waste_type == WasteType.GREEN:
@@ -67,16 +69,16 @@ def agent_portrayal(agent):
         else:
             color = "#c60000"
 
-        return {"size": 180, "color": color, "marker": WASTE_MARKER, "alpha": 0.95, "linewidth": 0}
+        return {"size": 180, "color": color, "marker": WASTE_MARKER, "alpha": 0.95, "linewidth": 0, "zorder": 2}
 
     elif isinstance(agent, GreenRobot):
-        return {"size": 300, "color": "#00ff91", "marker": ROBOT_MARKER, "alpha": 0.95, "linewidth": 0}
+        return {"size": 300, "color": "#00ff91", "marker": ROBOT_MARKER, "alpha": 0.95, "linewidth": 0, "zorder": 3}
 
     elif isinstance(agent, YellowRobot):
-        return {"size": 300, "color": "#ffbb00", "marker": ROBOT_MARKER, "alpha": 0.95, "linewidth": 0}
+        return {"size": 300, "color": "#ffbb00", "marker": ROBOT_MARKER, "alpha": 0.95, "linewidth": 0, "zorder": 3}
 
     elif isinstance(agent, RedRobot):
-        return {"size": 300, "color": "#E5007A", "marker": ROBOT_MARKER, "alpha": 0.95, "linewidth": 0}
+        return {"size": 300, "color": "#E5007A", "marker": ROBOT_MARKER, "alpha": 0.95, "linewidth": 0, "zorder": 3}
 
     return {}
 
@@ -272,12 +274,13 @@ def ZoneCoverageChart(model):
 
 # Model parameters
 model_params = {
+    "exploration_mode": Slider("Exploration Mode", value=0, min=0, max=2, step=1),
     "width": Slider("Grid Width", value=20, min=10, max=60, step=5),
     "height": Slider("Grid Height", value=20, min=10, max=30, step=5),
     "n_green_robots": Slider("Green Robots", value=5, min=1, max=10, step=1),
-    "n_yellow_robots": Slider("Yellow Robots", value=3, min=1, max=8, step=1),
-    "n_red_robots": Slider("Red Robots", value=2, min=1, max=5, step=1),
-    "n_initial_green_waste": Slider("Initial Green Waste", value=12, min=5, max=50, step=2),
+    "n_yellow_robots": Slider("Yellow Robots", value=3, min=0, max=8, step=1),
+    "n_red_robots": Slider("Red Robots", value=2, min=0, max=5, step=1),
+    "n_initial_green_waste": Slider("Initial Green Waste", value=12, min=0, max=50, step=2),
     "n_initial_yellow_waste": Slider("Initial Yellow Waste", value=4, min=0, max=40, step=2),
     "n_initial_red_waste": Slider("Initial Red Waste", value=2, min=0, max=30, step=2),
     "max_steps": Slider("Max Steps", value=150, min=50, max=1000, step=25),
