@@ -21,6 +21,7 @@ class RobotMissionModel(mesa.Model):
         self,
         width=40,
         height=20,
+        exploration_mode="sweep",
         n_green_robots=5,
         n_yellow_robots=3,
         n_red_robots=2,
@@ -46,6 +47,16 @@ class RobotMissionModel(mesa.Model):
             seed: Random seed
         """
         super().__init__(seed=seed)
+
+        # Supported exploration modes (bfs reserved for next step).
+        allowed_modes = ["sweep", "random", "bfs"]
+        if isinstance(exploration_mode, (int, float)):
+            idx = int(exploration_mode)
+            if 0 <= idx < len(allowed_modes):
+                exploration_mode = allowed_modes[idx]
+        if exploration_mode not in allowed_modes:
+            raise ValueError(f"exploration_mode must be one of {allowed_modes}, got: {exploration_mode}")
+        self.exploration_mode = exploration_mode
         
         self.width = width
         self.height = height
