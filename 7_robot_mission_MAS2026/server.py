@@ -175,6 +175,101 @@ def DisposalChart(model):
     solara.FigureMatplotlib(fig)
 
 
+@solara.component
+def TransformationsChart(model):
+    """Display cumulative transformations over steps."""
+    update_counter.get()
+
+    fig = Figure(figsize=(6, 4))
+    ax = fig.subplots()
+    data = model.datacollector.get_model_vars_dataframe()
+
+    ax.plot(
+        data.index,
+        data["Green_to_Yellow_Transformations"],
+        label="Green -> Yellow",
+        color="#1e8f42",
+        linewidth=2,
+    )
+    ax.plot(
+        data.index,
+        data["Yellow_to_Red_Transformations"],
+        label="Yellow -> Red",
+        color="#d09000",
+        linewidth=2,
+    )
+    ax.set_xlabel("Step")
+    ax.set_ylabel("Cumulative Transformations")
+    ax.set_title("Transformations Over Time")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    solara.FigureMatplotlib(fig)
+
+
+@solara.component
+def GroundWasteOverTimeChart(model):
+    """Display on-ground waste counts per type over steps."""
+    update_counter.get()
+
+    fig = Figure(figsize=(6, 4))
+    ax = fig.subplots()
+    data = model.datacollector.get_model_vars_dataframe()
+
+    ax.plot(data.index, data["Green_Waste_Ground"], label="Green", color="#00A210", linewidth=2)
+    ax.plot(data.index, data["Yellow_Waste_Ground"], label="Yellow", color="#c4cb00", linewidth=2)
+    ax.plot(data.index, data["Red_Waste_Ground"], label="Red", color="#c60000", linewidth=2)
+    ax.set_xlabel("Step")
+    ax.set_ylabel("On-Ground Waste Count")
+    ax.set_title("On-Ground Waste Over Time")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    solara.FigureMatplotlib(fig)
+
+
+@solara.component
+def CollectionTimeChart(model):
+    """Display average first->second pickup time for green and yellow robots."""
+    update_counter.get()
+
+    fig = Figure(figsize=(6, 4))
+    ax = fig.subplots()
+    data = model.datacollector.get_model_vars_dataframe()
+
+    ax.plot(data.index, data["Avg_Green_Collection_Time"], label="Green", color="#1e8f42", linewidth=2)
+    ax.plot(data.index, data["Avg_Yellow_Collection_Time"], label="Yellow", color="#d09000", linewidth=2)
+    ax.set_xlabel("Step")
+    ax.set_ylabel("Average Steps (1st -> 2nd Pickup)")
+    ax.set_title("Average Collection Time")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    solara.FigureMatplotlib(fig)
+
+
+@solara.component
+def ZoneCoverageChart(model):
+    """Display visited-cell ratio per zone over steps."""
+    update_counter.get()
+
+    fig = Figure(figsize=(6, 4))
+    ax = fig.subplots()
+    data = model.datacollector.get_model_vars_dataframe()
+
+    ax.plot(data.index, data["Visited_Ratio_Z1"], label="z1", color="#4caf50", linewidth=2)
+    ax.plot(data.index, data["Visited_Ratio_Z2"], label="z2", color="#c6a700", linewidth=2)
+    ax.plot(data.index, data["Visited_Ratio_Z3"], label="z3", color="#c24f4f", linewidth=2)
+    ax.set_xlabel("Step")
+    ax.set_ylabel("Visited Ratio")
+    ax.set_ylim(0, 1.05)
+    ax.set_title("Visited Cells Ratio Per Zone")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    solara.FigureMatplotlib(fig)
+
+
 # Model parameters
 model_params = {
     "width": Slider("Grid Width", value=20, min=10, max=60, step=5),
@@ -200,6 +295,10 @@ page = SolaraViz(
         InventoryCounter,
         WasteDistributionChart,
         DisposalChart,
+        TransformationsChart,
+        GroundWasteOverTimeChart,
+        CollectionTimeChart,
+        ZoneCoverageChart,
     ],
     model_params=model_params,
     name="Robot Waste Collection Mission - Group 7",

@@ -1,56 +1,39 @@
 """
 Group: 7
-Members:
-Date:
-Description: Robot Agent classes for Waste Collection MAS.
-
-Key design principles (Step 1 — memory-based navigation):
-  - Agents have NO global knowledge of waste positions.
-  - Each robot maintains an explored_map of cells it has visited,
-    and a known_waste dict of waste positions discovered during exploration.
-  - Navigation uses BFS on the explored/frontier graph to reach targets
-    or to find the next unvisited cell.
-  - Percepts contain ONLY what is locally visible (current cell + 4 neighbours).
+Members: 
+Date: 
+Description: Robot Agent classes for Waste Collection MAS
 """
 
 import mesa
-from collections import deque
 from enum import Enum
-
 
 from objects import WasteType
 
 
 class RobotType(Enum):
-    """Enumerate robot types."""
+    """Enumerate robot types"""
     GREEN = "green"
     YELLOW = "yellow"
     RED = "red"
 
 
-# ---------------------------------------------------------------------------
-# Base robot
-# ---------------------------------------------------------------------------
-
 class BaseRobot(mesa.Agent):
-    """
-    Base class for all robot types.
+    """Base class for all robot types"""
 
-    Internal knowledge base
-    -----------------------
-    pos          : current position (updated from percepts each step)
-    inventory    : list of WasteType enums currently held
-    max_zone_x   : maximum x-coordinate this robot may occupy
-    explored_map : set of (x, y) positions the robot has visited
-    known_waste  : dict {(x,y): WasteType} — waste the robot has seen
-    mode         : "explore" | "collect" | "deposit"
-    """
-
-    def __init__(self, model, robot_type: RobotType):
+    def __init__(self, model, robot_type):
+        """
+        Initialize a robot agent.
+        
+        Args:
+            model: Model instance
+            robot_type: RobotType enum
+        """
         super().__init__(model)
         self.robot_type = robot_type
-        self.inventory: list = []  # list of Waste objectsf     
-
+        self.inventory = []  # List of waste objects
+        
+        # Knowledge base: agent's internal beliefs and observations
         self.knowledge = {
             "pos": None,
             "inventory": [],  # Agent's belief about what it carries
@@ -66,21 +49,22 @@ class BaseRobot(mesa.Agent):
             "last_action_failed": False,
             "grid_width": model.width,
             "grid_height": model.height,
-
         }
 
-    # ------------------------------------------------------------------
-    # Main control loop
-    # ------------------------------------------------------------------
-
     def step_agent(self):
-        """Percept → update knowledge → deliberate → do."""
+        """
+        Execute one step of the agent control loop:
+        1. Update knowledge with percepts from environment
+        2. Deliberate to choose action
+        3. Execute action via model.do()
+        """
+        # Step 1: Percepts - get information from environment
         percepts = self.model.perceive(self)
-
-        # --- Update knowledge from local percepts only ---
+        
+        # Step 2: Update knowledge with percepts
         self.knowledge["pos"] = self.pos
+        self.knowledge["observations"] = percepts
         self.knowledge["inventory"] = [w.waste_type for w in self.inventory]
-
         self.knowledge["visited"].add(self.pos)
         self._remember_move(self.pos)
         self.knowledge["steps_since_frontier"] += 1
@@ -94,101 +78,8 @@ class BaseRobot(mesa.Agent):
 
     def deliberate(self):
         """
-        Add unvisited, accessible neighbour cells to the frontier queue.
-        The frontier drives exploration: the robot pops from it when it
-        has nothing more important to do.
-        """
-        explored = self.knowledge["explored_map"]
-        frontier_set = set(self.knowledge["frontier"])
-
-        for nb in percepts.get("neighbors", []):
-            nb_pos = nb["pos"]
-            if nb_pos not in explored and nb_pos not in frontier_set:
-                if self.can_move_to(nb_pos):
-                    self.knowledge["frontier"].append(nb_pos)
-
-    def _bfs_next_step(self, target_pos):
-        """
-        Return the next adjacent step towards target_pos using BFS over
-        the robot's explored_map.  Falls back to a greedy Manhattan step
-        if BFS cannot find a path (unexplored territory between agent and
-        target — the robot will re-route as it explores more).
-
-        Returns (dx, dy) as one of the four cardinal neighbours of self.pos,
-        or None if already at target.
-        """
-        if self.pos == target_pos:
-            return None
-
-        explored = self.knowledge["explored_map"]
-        start = self.pos
-        width = self.model.grid.width
-        height = self.model.grid.height
-        max_x = self.knowledge["max_zone_x"]
-
-        # BFS
-        queue = deque([(start, [])])
-        visited = {start}
-
-        while queue:
-            current, path = queue.popleft()
-
-            cx, cy = current
-            for nx, ny in [(cx+1, cy), (cx-1, cy), (cx, cy+1), (cx, cy-1)]:
-                nb = (nx, ny)
-                if nb in visited:
-                    continue
-                if not (0 <= nx < width and 0 <= ny < height):
-                    continue
-                if nx > max_x:
-                    continue
-
-                new_path = path + [nb]
-
-                if nb == target_pos:
-                    return new_path[0] if new_path else None
-
-                # Only traverse explored cells (we know they are passable)
-                if nb in explored:
-                    visited.add(nb)
-                    queue.append((nb, new_path))
-
-        # BFS failed (target not reachable through explored cells yet)
-        # → greedy Manhattan step towards target, respecting bounds
-        tx, ty = target_pos
-        px, py = self.pos
-        candidates = []
-        if tx > px and px + 1 <= max_x:
-            candidates.append((px+1, py))
-        if tx < px and px - 1 >= 0:
-            candidates.append((px-1, py))
-        if ty > py and py + 1 < height:
-            candidates.append((px, py+1))
-        if ty < py and py - 1 >= 0:
-            candidates.append((px, py-1))
-
-        if candidates:
-            return min(candidates, key=lambda p: abs(p[0]-tx)+abs(p[1]-ty))
-        return None
-
-    # ------------------------------------------------------------------
-    # Constraint helper
-    # ------------------------------------------------------------------
-
-    def can_move_to(self, position):
-        """Return True if position is within this robot's zone limit."""
-        x, _ = position
-        return x <= self.knowledge["max_zone_x"]
-
-    # ------------------------------------------------------------------
-    # Abstract deliberate
-    # ------------------------------------------------------------------
-
-    def deliberate(self, knowledge, percepts):
-        """
-        Choose an action based on knowledge and latest percepts.
+        Reasoning process. Only receives knowledge, returns action.
         Must be overridden by subclasses.
-
         This method must only read from the "knowledge" argument.
         """
         raise NotImplementedError
@@ -398,17 +289,15 @@ class GreenRobot(BaseRobot):
             grid_width, grid_height  : for navigation
 
         Task: collect 2 green wastes -> transform to 1 yellow -> deposit at z1/z2 frontier.
->>>>>>> c29a05001d6440b6e38685de0b52567d978ac6e2
     """
 
     def __init__(self, model):
         super().__init__(model, RobotType.GREEN)
 
-
-    def deliberate(self, knowledge, percepts):
+    def deliberate(self, knowledge):
+        """Green robot decision logic with intelligent pathfinding"""
         pos = knowledge["pos"]
         inventory = knowledge["inventory"]
-
         observations = knowledge["observations"]
 
         # If we have 2 green wastes, transform to yellow
@@ -441,23 +330,23 @@ class GreenRobot(BaseRobot):
         return None
 
 
-# ---------------------------------------------------------------------------
-# Yellow Robot
-# ---------------------------------------------------------------------------
-
 class YellowRobot(BaseRobot):
     """
+    Yellow Robot : operates in z1 + z2.
 
+    Knowledge provided at init:
+            grid_width, grid_height  - for navigation
+
+        Task: collect 2 yellow wastes -> transform to 1 red -> deposit at z2/z3 frontier.
     """
 
     def __init__(self, model):
         super().__init__(model, RobotType.YELLOW)
 
-
-    def deliberate(self, knowledge, percepts):
+    def deliberate(self, knowledge):
+        """Yellow robot decision logic with intelligent pathfinding"""
         pos = knowledge["pos"]
         inventory = knowledge["inventory"]
-
         observations = knowledge["observations"]
         current_zone = observations.get("zone")
 
@@ -495,24 +384,29 @@ class YellowRobot(BaseRobot):
         new_pos = self._plan_exploration_step(pos)
         if new_pos:
             return {"action": "move", "target_pos": new_pos}
+        
         return None
 
 
-# ---------------------------------------------------------------------------
-# Red Robot
-# ---------------------------------------------------------------------------
-
 class RedRobot(BaseRobot):
+    """
+    Red Robot : operates in z1 + z2 + z3.
 
+    Knowledge provided at init:
+      grid_width, grid_height  - for navigation
+      disposal_x               - x-column of the disposal zone (easternmost column)
+
+    Task: collect 1 red waste -> transport east -> dispose at disposal_x.
+    """
 
     def __init__(self, model):
         super().__init__(model, RobotType.RED)
+        self.knowledge["disposal_x"] = model.disposal_zone_x
 
-
-    def deliberate(self, knowledge, percepts):
+    def deliberate(self, knowledge):
+        """Red robot decision logic with intelligent pathfinding"""
         pos = knowledge["pos"]
         inventory = knowledge["inventory"]
-
         observations = knowledge["observations"]
         disposal_x = knowledge["disposal_x"]
         grid_width = knowledge["grid_width"]
@@ -550,4 +444,3 @@ class RedRobot(BaseRobot):
             return {"action": "move", "target_pos": new_pos}
         
         return None
-
