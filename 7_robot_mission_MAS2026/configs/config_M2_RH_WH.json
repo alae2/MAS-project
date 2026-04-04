@@ -1,0 +1,13 @@
+{
+    "n_steps": 300, 
+    "width": 50, 
+    "height": 25, 
+    "exploration_mode": 2, 
+    "seed": 7,
+    "n_green_robots": 6, 
+    "n_yellow_robots": 4, 
+    "n_red_robots": 2,
+    "n_initial_green_waste": 40, 
+    "n_initial_yellow_waste": 20, 
+    "n_initial_red_waste": 10
+}
