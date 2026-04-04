@@ -6,65 +6,49 @@ Description: Script to run the RobotMission simulation
 """
 
 from os import mkdir
-
+import json
+import os 
 from model import RobotMissionModel
 import matplotlib.pyplot as plt
 import pandas as pd
+import matplotlib.gridspec as gridspec
 
-
-def run_simulation(
-    n_steps=150,
-    width=40,
-    height=20,
-    n_green_robots=7,
-    n_yellow_robots=5,
-    n_red_robots=3,
-    n_initial_green_waste=10,
-    n_initial_yellow_waste=5,
-    n_initial_red_waste=3,
-    seed=7
-):
+def run_simulation(config_dict):
     """
     Run the robot waste collection simulation.
     
     Args:
-        n_steps: Number of simulation steps
-        width: Grid width
-        height: Grid height
-        n_green_robots: Number of green robots
-        n_yellow_robots: Number of yellow robots
-        n_red_robots: Number of red robots
-        n_initial_green_waste: Number of initial green waste items
-        n_initial_yellow_waste: Number of initial yellow waste items
-        n_initial_red_waste: Number of initial red waste items
-        seed: Random seed for reproducibility
+        config_dict: Dictionary containing simulation parameters
+
     """
     
     print("------ ROBOT WASTE COLLECTION MULTI-AGENT SYSTEM ------")
     print(f"\nSimulation Parameters:")
-    print(f"  Grid: {width}x{height}")
-    print(f"  Green Robots: {n_green_robots}")
-    print(f"  Yellow Robots: {n_yellow_robots}")
-    print(f"  Red Robots: {n_red_robots}")
-    print(f"  Initial Green Waste: {n_initial_green_waste}")
-    print(f"  Initial Yellow Waste: {n_initial_yellow_waste}")
-    print(f"  Initial Red Waste: {n_initial_red_waste}")
-    print(f"  Steps: {n_steps}")
+    print(f"  Grid: {config_dict.get('width', 40)}x{config_dict.get('height', 20)}")
+    print(f"  Green Robots: {config_dict.get('n_green_robots', 3)}")
+    print(f"  Yellow Robots: {config_dict.get('n_yellow_robots', 2)}")
+    print(f"  Red Robots: {config_dict.get('n_red_robots', 1)}")
+    print(f"  Initial Green Waste: {config_dict.get('n_initial_green_waste', 10)}")
+    print(f"  Initial Yellow Waste: {config_dict.get('n_initial_yellow_waste', 5)}")
+    print(f"  Initial Red Waste: {config_dict.get('n_initial_red_waste', 3)}")
+    print(f"  Steps: {config_dict.get('n_steps', 150)}")
     print("\n" + "-" * 55 + "\n")
     
     model = RobotMissionModel(
-        width=width,
-        height=height,
-        n_green_robots=n_green_robots,
-        n_yellow_robots=n_yellow_robots,
-        n_red_robots=n_red_robots,
-        n_initial_green_waste=n_initial_green_waste,
-        n_initial_yellow_waste=n_initial_yellow_waste,
-        n_initial_red_waste=n_initial_red_waste,
-        max_steps=None,
-        seed=seed
+        width=config_dict.get("width", 40),
+        height=config_dict.get("height", 20),
+        exploration_mode=config_dict.get("exploration_mode", 0),
+        n_green_robots=config_dict.get("n_green_robots", 3),
+        n_yellow_robots=config_dict.get("n_yellow_robots", 2),
+        n_red_robots=config_dict.get("n_red_robots", 1),
+        n_initial_green_waste=config_dict.get("n_initial_green_waste", 10),
+        n_initial_yellow_waste=config_dict.get("n_initial_yellow_waste", 5),
+        n_initial_red_waste=config_dict.get("n_initial_red_waste", 3),
+        seed=config_dict.get("seed", 7),
+        max_steps=config_dict.get("n_steps", 150)
     )
     
+    n_steps = config_dict.get("n_steps", 150)
     for _ in range(n_steps):
         model.step()
     
@@ -88,7 +72,6 @@ def run_simulation(
 def plot_results(model_data):
     """Plot simulation results with ground and carried waste tracking"""
 
-    import matplotlib.gridspec as gridspec
     
     fig = plt.figure(figsize=(16, 10))
     gs = gridspec.GridSpec(2, 3, figure=fig)
@@ -165,26 +148,71 @@ def plot_results(model_data):
             fontfamily='monospace', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
     plt.tight_layout()
-    plt.savefig('figures/robot_mission_results.png', dpi=150, bbox_inches='tight')
-    print("\n Results saved to 'figures/robot_mission_results.png'")
+    plt.savefig('./7_robot_mission_MAS2026/figures/robot_mission_results.png', dpi=150, bbox_inches='tight')
+    print("\n Results saved to './7_robot_mission_MAS2026/figures/robot_mission_results.png'")
 
+
+# if __name__ == "__main__":
+#     # Run simulation with default parameters
+#     model, data = run_simulation(
+#         n_steps=250,
+#         width=40,
+#         height=20,
+#         exploration_mode=0,  # 0: No exploration, 1: Random exploration, 2: Directed exploration
+#         n_green_robots=3,
+#         n_yellow_robots=2,
+#         n_red_robots=1,
+#         n_initial_green_waste=10,
+#         n_initial_yellow_waste=5,
+#         n_initial_red_waste=3,
+#         seed=7
+#     )
+    
+#     plot_results(data)
+    
+#     data.to_csv('./7_robot_mission_MAS2026/results/robot_mission_data_explore.csv')
+#     print(" Data saved to './7_robot_mission_MAS2026/results/robot_mission_data_explore.csv'")
 
 if __name__ == "__main__":
-    # Run simulation with default parameters
-    model, data = run_simulation(
-        n_steps=250,
-        width=40,
-        height=20,
-        n_green_robots=3,
-        n_yellow_robots=2,
-        n_red_robots=1,
-        n_initial_green_waste=10,
-        n_initial_yellow_waste=5,
-        n_initial_red_waste=3,
-        seed=7
-    )
+    # Define significant paths
+    BASE_PATH = "./7_robot_mission_MAS2026"
+    CONFIG_DIR = os.path.join(BASE_PATH, "configs")
+    RESULTS_DIR = os.path.join(BASE_PATH, "results")
+    FIGURES_DIR = os.path.join(BASE_PATH, "figures")
+
+    # Ensure directories exist
+    for folder in [CONFIG_DIR, RESULTS_DIR, FIGURES_DIR]:
+        os.makedirs(folder, exist_ok=True)
+
+    # List all config files
+    config_files = [f for f in os.listdir(CONFIG_DIR) if f.endswith('.json')]
     
-    plot_results(data)
-    
-    data.to_csv('results/robot_mission_data.csv')
-    print(" Data saved to 'results/robot_mission_data.csv'")
+    if not config_files:
+        print(f"No configuration files found in {CONFIG_DIR}")
+    else:
+        print(f"Found {len(config_files)} configurations. Processing...")
+
+    for config_file in config_files:
+        # Generate a significant ID from the filename (e.g., 'explore_mode_2')
+        config_id = os.path.splitext(config_file)[0]
+        
+        # Load parameters
+        with open(os.path.join(CONFIG_DIR, config_file), 'r') as f:
+            params = json.load(f)
+        
+        print(f"\n>>> Starting Simulation: {config_id}")
+        
+        # Run
+        model, data = run_simulation(params)
+        
+        # Save Plot 
+        plot_results(data, filename=f"{FIGURES_DIR}/plot_{config_id}.png")
+        
+        # Save CSV with significant ID
+        csv_path = os.path.join(RESULTS_DIR, f"robot_mission_data_{config_id}.csv")
+        data.to_csv(csv_path)
+        
+        print(f"--- Finished: {config_id} ---")
+        print(f"--- Data saved to: {csv_path}")
+
+    print("\nAll batch configurations have been processed.")
