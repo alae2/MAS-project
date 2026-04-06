@@ -22,6 +22,7 @@ class RobotMissionModel(mesa.Model):
         width=40,
         height=20,
         exploration_mode="sweep",
+        communication_enabled=1,
         n_green_robots=5,
         n_yellow_robots=3,
         n_red_robots=2,
@@ -57,6 +58,13 @@ class RobotMissionModel(mesa.Model):
         if exploration_mode not in allowed_modes:
             raise ValueError(f"exploration_mode must be one of {allowed_modes}, got: {exploration_mode}")
         self.exploration_mode = exploration_mode
+
+        # Communication toggle (0/1 from UI or bool/int/str from code).
+        if isinstance(communication_enabled, str):
+            communication_enabled = communication_enabled.strip().lower() not in ("0", "false", "off", "no")
+        elif isinstance(communication_enabled, (int, float)):
+            communication_enabled = int(communication_enabled) != 0
+        self.communication_enabled = bool(communication_enabled)
         
         self.width = width
         self.height = height
@@ -74,6 +82,23 @@ class RobotMissionModel(mesa.Model):
             ("z2", (z1_end + 1, z2_end)), # zone 2: medium radioactivity
             ("z3", (z2_end + 1, width - 1))  # zone 3: high radioactivity
         ]
+
+        # Lightweight communication layer (green and yellow channels only).
+        self.comm_contract_timeout = 25
+        self._comm = {
+            "green": {
+                "waiting": {},          # robot_id -> {pos, step}
+                "contracts": {},        # contract_id -> contract dict
+                "robot_to_contract": {},# robot_id -> contract_id
+                "next_contract_id": 1,
+            },
+            "yellow": {
+                "waiting": {},
+                "contracts": {},
+                "robot_to_contract": {},
+                "next_contract_id": 1,
+            },
+        }
         
         # Create radioactivity for each cell based on zone
         self._radioactivity_map = {}
@@ -228,6 +253,8 @@ class RobotMissionModel(mesa.Model):
             "neighbor_radioactivity": [],
             "radioactivity":  current_cell_radioactivity.radioactivity_level,
             "zone":           current_cell_radioactivity.zone_name,
+            "comm_enabled": self.communication_enabled,
+            "comm_assignment": self._comm_get_assignment(agent) if self.communication_enabled else None,
             "action_failed":  False,
         }
  
@@ -312,6 +339,14 @@ class RobotMissionModel(mesa.Model):
         
         if action_type == "move":
             return self._do_move(agent, action)
+        elif action_type == "comm_need":
+            if not self.communication_enabled:
+                return self.perceive(agent)
+            return self._do_comm_need(agent, action)
+        elif action_type == "transfer":
+            if not self.communication_enabled:
+                return self.perceive(agent)
+            return self._do_transfer(agent, action)
         elif action_type == "pick_up":
             return self._do_pick_up(agent, action)
         elif action_type == "transform":
@@ -504,6 +539,255 @@ class RobotMissionModel(mesa.Model):
         
         return self.perceive(agent)
 
+    def _do_comm_need(self, agent, action):
+        """Register agent on communication blackboard when holding one transformable waste."""
+        if not self.communication_enabled:
+            return self.perceive(agent)
+
+        channel = action.get("channel")
+        waste_type = action.get("waste_type")
+
+        if channel not in ("green", "yellow"):
+            return self.perceive(agent)
+
+        if channel == "green":
+            if not isinstance(agent, GreenRobot) or waste_type != WasteType.GREEN:
+                return self.perceive(agent)
+            if sum(1 for w in agent.inventory if w.waste_type == WasteType.GREEN) != 1:
+                return self.perceive(agent)
+        else:
+            if not isinstance(agent, YellowRobot) or waste_type != WasteType.YELLOW:
+                return self.perceive(agent)
+            if sum(1 for w in agent.inventory if w.waste_type == WasteType.YELLOW) != 1:
+                return self.perceive(agent)
+
+        state = self._comm[channel]
+        if agent.unique_id not in state["robot_to_contract"]:
+            state["waiting"][agent.unique_id] = {"pos": agent.pos, "step": self.steps}
+            self._comm_try_match(channel)
+
+        return self.perceive(agent)
+
+    def _do_transfer(self, sender, action):
+        """Transfer one waste from sender to receiver when both meet on same cell."""
+        if not self.communication_enabled:
+            return self.perceive(sender)
+
+        channel = action.get("channel")
+        contract_id = action.get("contract_id")
+        receiver_id = action.get("receiver_id")
+        waste_type = action.get("waste_type")
+
+        if channel not in ("green", "yellow"):
+            return self.perceive(sender)
+
+        contract = self._comm[channel]["contracts"].get(contract_id)
+        if contract is None:
+            return self.perceive(sender)
+        if contract.get("donor_id") != sender.unique_id:
+            return self.perceive(sender)
+        if contract.get("receiver_id") != receiver_id:
+            return self.perceive(sender)
+        if contract.get("waste_type") != waste_type:
+            return self.perceive(sender)
+
+        receiver = self._get_agent_by_id(receiver_id)
+        if receiver is None:
+            self._comm_complete_contract(channel, contract_id)
+            return self.perceive(sender)
+        if sender.pos != receiver.pos:
+            return self.perceive(sender)
+
+        waste_idx = None
+        for idx, w in enumerate(sender.inventory):
+            if w.waste_type == waste_type:
+                waste_idx = idx
+                break
+        if waste_idx is None:
+            return self.perceive(sender)
+
+        waste = sender.inventory.pop(waste_idx)
+        waste.carried_by = receiver.unique_id
+        receiver.inventory.append(waste)
+
+        # Keep first->second pickup timing metrics coherent with transfer-based pairing.
+        if waste_type == WasteType.GREEN:
+            first_step = self._green_first_pick_step.pop(receiver.unique_id, None)
+            if first_step is not None:
+                self._green_collection_intervals.append(self.steps - first_step)
+            self._green_first_pick_step.pop(sender.unique_id, None)
+        elif waste_type == WasteType.YELLOW:
+            first_step = self._yellow_first_pick_step.pop(receiver.unique_id, None)
+            if first_step is not None:
+                self._yellow_collection_intervals.append(self.steps - first_step)
+            self._yellow_first_pick_step.pop(sender.unique_id, None)
+
+        self._comm_complete_contract(channel, contract_id)
+
+        return self.perceive(sender)
+
+    def _comm_zone_bounds(self, channel):
+        """Get rendezvous zone x-range for a communication channel."""
+        z1_end = self.width // 3
+        z2_end = (2 * self.width) // 3
+        if channel == "green":
+            return 0, z1_end
+        return z1_end + 1, z2_end
+
+    def _get_agent_by_id(self, agent_id):
+        for agent in self.agents:
+            if agent.unique_id == agent_id:
+                return agent
+        return None
+
+    def _comm_make_meet_pos(self, channel, pos_a, pos_b):
+        """Pick a deterministic rendezvous position constrained to channel zone."""
+        min_x, max_x = self._comm_zone_bounds(channel)
+        meet_x = (pos_a[0] + pos_b[0]) // 2
+        meet_y = (pos_a[1] + pos_b[1]) // 2
+        meet_x = max(min_x, min(max_x, meet_x))
+        meet_y = max(0, min(self.height - 1, meet_y))
+        return (meet_x, meet_y)
+
+    def _comm_try_match(self, channel):
+        """Match waiting robots in one channel into contracts (nearest-first)."""
+        state = self._comm[channel]
+
+        # Remove waiting robots that are already contracted or no longer present.
+        stale_waiting = []
+        for robot_id in state["waiting"]:
+            if robot_id in state["robot_to_contract"] or self._get_agent_by_id(robot_id) is None:
+                stale_waiting.append(robot_id)
+        for robot_id in stale_waiting:
+            state["waiting"].pop(robot_id, None)
+
+        while len(state["waiting"]) >= 2:
+            ids = list(state["waiting"].keys())
+            best_pair = None
+            best_dist = None
+            for i in range(len(ids)):
+                for j in range(i + 1, len(ids)):
+                    a = ids[i]
+                    b = ids[j]
+                    pa = state["waiting"][a]["pos"]
+                    pb = state["waiting"][b]["pos"]
+                    dist = abs(pa[0] - pb[0]) + abs(pa[1] - pb[1])
+                    if best_dist is None or dist < best_dist:
+                        best_dist = dist
+                        best_pair = (a, b)
+
+            if best_pair is None:
+                return
+
+            a, b = best_pair
+            agent_a = self._get_agent_by_id(a)
+            agent_b = self._get_agent_by_id(b)
+            if agent_a is None or agent_b is None:
+                state["waiting"].pop(a, None)
+                state["waiting"].pop(b, None)
+                continue
+
+            receiver_id = min(a, b)
+            donor_id = max(a, b)
+
+            if channel == "green":
+                waste_type = WasteType.GREEN
+            else:
+                waste_type = WasteType.YELLOW
+
+            contract_id = state["next_contract_id"]
+            state["next_contract_id"] += 1
+            meet_pos = self._comm_make_meet_pos(channel, agent_a.pos, agent_b.pos)
+
+            contract = {
+                "contract_id": contract_id,
+                "channel": channel,
+                "receiver_id": receiver_id,
+                "donor_id": donor_id,
+                "meet_pos": meet_pos,
+                "waste_type": waste_type,
+                "created_step": self.steps,
+                "expires_step": self.steps + self.comm_contract_timeout,
+            }
+            state["contracts"][contract_id] = contract
+            state["robot_to_contract"][receiver_id] = contract_id
+            state["robot_to_contract"][donor_id] = contract_id
+            state["waiting"].pop(a, None)
+            state["waiting"].pop(b, None)
+
+    def _comm_complete_contract(self, channel, contract_id):
+        state = self._comm[channel]
+        contract = state["contracts"].pop(contract_id, None)
+        if contract is None:
+            return
+        state["robot_to_contract"].pop(contract["receiver_id"], None)
+        state["robot_to_contract"].pop(contract["donor_id"], None)
+
+    def _comm_cleanup(self):
+        """Remove expired contracts and stale waiting entries."""
+        for channel in ("green", "yellow"):
+            state = self._comm[channel]
+
+            stale_waiting = []
+            for robot_id in state["waiting"]:
+                if self._get_agent_by_id(robot_id) is None or robot_id in state["robot_to_contract"]:
+                    stale_waiting.append(robot_id)
+            for robot_id in stale_waiting:
+                state["waiting"].pop(robot_id, None)
+
+            expired = []
+            for contract_id, contract in state["contracts"].items():
+                if self.steps > contract["expires_step"]:
+                    expired.append(contract_id)
+                    continue
+                if self._get_agent_by_id(contract["receiver_id"]) is None:
+                    expired.append(contract_id)
+                    continue
+                if self._get_agent_by_id(contract["donor_id"]) is None:
+                    expired.append(contract_id)
+
+            for contract_id in expired:
+                self._comm_complete_contract(channel, contract_id)
+
+    def _comm_get_assignment(self, agent):
+        """Return active contract assignment for one agent, or None."""
+        if not self.communication_enabled:
+            return None
+
+        if isinstance(agent, GreenRobot):
+            channel = "green"
+        elif isinstance(agent, YellowRobot):
+            channel = "yellow"
+        else:
+            return None
+
+        state = self._comm[channel]
+        contract_id = state["robot_to_contract"].get(agent.unique_id)
+        if contract_id is None:
+            return None
+
+        contract = state["contracts"].get(contract_id)
+        if contract is None:
+            state["robot_to_contract"].pop(agent.unique_id, None)
+            return None
+
+        if agent.unique_id == contract["receiver_id"]:
+            role = "receiver"
+            partner_id = contract["donor_id"]
+        else:
+            role = "donor"
+            partner_id = contract["receiver_id"]
+
+        return {
+            "contract_id": contract["contract_id"],
+            "channel": contract["channel"],
+            "role": role,
+            "partner_id": partner_id,
+            "receiver_id": contract["receiver_id"],
+            "meet_pos": contract["meet_pos"],
+            "waste_type": contract["waste_type"],
+        }
+
     def step(self):
         """Execute one step of the model"""
         self.steps += 1
@@ -511,6 +795,9 @@ class RobotMissionModel(mesa.Model):
         # Check if max steps reached
         if self.max_steps is not None and self.steps > self.max_steps:
             return
+
+        if self.communication_enabled:
+            self._comm_cleanup()
         
         # Execute all robots in random order
         self.agents.select(lambda agent: isinstance(agent, (GreenRobot, YellowRobot, RedRobot))).shuffle_do("step_agent")
