@@ -272,9 +272,60 @@ def ZoneCoverageChart(model):
     solara.FigureMatplotlib(fig)
 
 
+@solara.component
+def BlackboardView(model):
+    """Display communication blackboard state (waiting robots and active contracts)."""
+    update_counter.get()
+
+    if not getattr(model, "communication_enabled", False):
+        solara.Markdown("```\nCOMMUNICATION BLACKBOARD\nStatus: OFF\n```")
+        return
+
+    comm = getattr(model, "_comm", {})
+    lines = [
+        "COMMUNICATION BLACKBOARD",
+        f"Step: {model.steps}",
+        "",
+    ]
+
+    for channel in ("green", "yellow"):
+        state = comm.get(channel, {})
+        waiting = state.get("waiting", {})
+        contracts = state.get("contracts", {})
+
+        lines.append(f"[{channel.upper()} CHANNEL]")
+        lines.append(f"Waiting: {len(waiting)} | Active contracts: {len(contracts)}")
+
+        if waiting:
+            lines.append("Waiting robots:")
+            for robot_id in sorted(waiting.keys()):
+                item = waiting[robot_id]
+                lines.append(f"  - robot {robot_id} at {item.get('pos')} (since step {item.get('step')})")
+
+        if contracts:
+            lines.append("Contracts:")
+            for cid in sorted(contracts.keys()):
+                c = contracts[cid]
+                lines.append(
+                    "  - C{}: receiver={} donor={} meet={} expires={}".format(
+                        c.get("contract_id"),
+                        c.get("receiver_id"),
+                        c.get("donor_id"),
+                        c.get("meet_pos"),
+                        c.get("expires_step"),
+                    )
+                )
+
+        lines.append("")
+
+    board_text = "\n".join(lines)
+    solara.Markdown("```\n" + board_text + "\n```")
+
+
 # Model parameters
 model_params = {
     "exploration_mode": Slider("Exploration Mode", value=0, min=0, max=2, step=1),
+    "communication_enabled": Slider("Communication (0:off, 1:on)", value=1, min=0, max=1, step=1),
     "width": Slider("Grid Width", value=20, min=10, max=60, step=5),
     "height": Slider("Grid Height", value=20, min=10, max=30, step=5),
     "n_green_robots": Slider("Green Robots", value=5, min=1, max=10, step=1),
@@ -296,6 +347,7 @@ page = SolaraViz(
     components=[
         SpaceGraph,
         InventoryCounter,
+        BlackboardView,
         WasteDistributionChart,
         DisposalChart,
         TransformationsChart,

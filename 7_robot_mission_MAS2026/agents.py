@@ -49,6 +49,8 @@ class BaseRobot(mesa.Agent):
             "frontier_mode": False,
             "frontier_dir": "down",
             "last_action_failed": False,
+            "single_waste_steps": 0,
+            "comm_need_threshold": 12,
             "grid_width": model.width,
             "grid_height": model.height,
         }
@@ -68,6 +70,7 @@ class BaseRobot(mesa.Agent):
         self.knowledge["observations"] = percepts
         self.knowledge["inventory"] = [w.waste_type for w in self.inventory]
         self.knowledge["visited"].add(self.pos)
+        self._update_single_waste_counter()
         self._remember_move(self.pos)
         self.knowledge["steps_since_frontier"] += 1
         self.knowledge["last_action_failed"] = percepts.get("action_failed", False)
@@ -288,6 +291,82 @@ class BaseRobot(mesa.Agent):
             and self.can_move_to(n)
         ]
         return self.random.choice(valid) if valid else None
+    
+    def _update_single_waste_counter(self):
+        """Track how long a robot has been carrying exactly one transformable waste."""
+        inv = self.knowledge["inventory"]
+        count = 0
+
+        if self.robot_type == RobotType.GREEN:
+            count = inv.count(WasteType.GREEN)
+        elif self.robot_type == RobotType.YELLOW:
+            count = inv.count(WasteType.YELLOW)
+
+        if count == 1:
+            self.knowledge["single_waste_steps"] += 1
+        else:
+            self.knowledge["single_waste_steps"] = 0
+
+    def _step_toward(self, pos, target_pos):
+        """Pick one valid neighboring step that moves toward target_pos."""
+        if pos == target_pos:
+            return None
+
+        candidates = []
+        dx = target_pos[0] - pos[0]
+        dy = target_pos[1] - pos[1]
+
+        if dx > 0:
+            candidates.append((pos[0] + 1, pos[1]))
+        elif dx < 0:
+            candidates.append((pos[0] - 1, pos[1]))
+
+        if dy > 0:
+            candidates.append((pos[0], pos[1] + 1))
+        elif dy < 0:
+            candidates.append((pos[0], pos[1] - 1))
+
+        # Fallback neighbors in case primary axis move is blocked.
+        for c in [(pos[0] + 1, pos[1]), (pos[0] - 1, pos[1]), (pos[0], pos[1] + 1), (pos[0], pos[1] - 1)]:
+            if c not in candidates:
+                candidates.append(c)
+
+        width = self.knowledge["grid_width"]
+        height = self.knowledge["grid_height"]
+        for c in candidates:
+            if 0 <= c[0] < width and 0 <= c[1] < height and self.can_move_to(c):
+                return c
+
+        return None
+
+    def _comm_action_from_assignment(self, pos, observations, assignment, waste_type):
+        """Handle rendezvous/transfer action for an active communication assignment."""
+        meet_pos = assignment.get("meet_pos")
+        if meet_pos is None:
+            return None
+        meet_pos = tuple(meet_pos)
+
+        if pos != meet_pos:
+            step = self._step_toward(pos, meet_pos)
+            if step:
+                return {"action": "move", "target_pos": step}
+            return None
+
+        if assignment.get("role") != "donor":
+            return None
+
+        partner_id = assignment.get("partner_id")
+        partner_here = any(getattr(other, "unique_id", None) == partner_id for other in observations.get("agents_here", []))
+        if not partner_here:
+            return None
+
+        return {
+            "action": "transfer",
+            "channel": assignment.get("channel"),
+            "contract_id": assignment.get("contract_id"),
+            "receiver_id": assignment.get("receiver_id"),
+            "waste_type": waste_type,
+        }
 
     def _remember_move(self, pos):
         """Track recent positions to avoid short loops."""
@@ -445,6 +524,16 @@ class GreenRobot(BaseRobot):
         target_cell = self._find_nearest_waste(WasteType.GREEN)
         if target_cell:
             return {"action": "move", "target_pos": target_cell}
+
+        # Communication: if holding exactly one green for too long, collaborate in z1.
+        if observations.get("comm_enabled", False) and inventory.count(WasteType.GREEN) == 1:
+            assignment = observations.get("comm_assignment")
+            if assignment and assignment.get("channel") == "green":
+                action = self._comm_action_from_assignment(pos, observations, assignment, WasteType.GREEN)
+                if action:
+                    return action
+            elif knowledge["single_waste_steps"] >= knowledge["comm_need_threshold"]:
+                return {"action": "comm_need", "channel": "green", "waste_type": WasteType.GREEN}
                 
         # Default: systematic sweep within accessible zones
         new_pos = self._plan_exploration_step(pos)
@@ -494,6 +583,16 @@ class YellowRobot(BaseRobot):
         target_cell = self._find_nearest_waste(WasteType.YELLOW)
         if target_cell:
             return {"action": "move", "target_pos": target_cell}
+
+        # Communication: if holding exactly one yellow for too long, collaborate in z2.
+        if observations.get("comm_enabled", False) and inventory.count(WasteType.YELLOW) == 1:
+            assignment = observations.get("comm_assignment")
+            if assignment and assignment.get("channel") == "yellow":
+                action = self._comm_action_from_assignment(pos, observations, assignment, WasteType.YELLOW)
+                if action:
+                    return action
+            elif knowledge["single_waste_steps"] >= knowledge["comm_need_threshold"]:
+                return {"action": "comm_need", "channel": "yellow", "waste_type": WasteType.YELLOW}
 
         # Periodically check the z1/z2 frontier for new yellow waste
         frontier_action = self._frontier_scan(pos, "z1_z2")
