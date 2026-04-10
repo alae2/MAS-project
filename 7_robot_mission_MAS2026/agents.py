@@ -7,6 +7,7 @@ Description: Robot Agent classes for Waste Collection MAS
 
 import mesa
 from enum import Enum
+from collections import deque
 
 from objects import WasteType
 
@@ -110,8 +111,9 @@ class BaseRobot(mesa.Agent):
         if mode == "random":
             return self._plan_random_step(pos)
         if mode == "bfs":
-            # BFS reserved but not implemented yet: use sweep behavior.
-            pass
+            return self._plan_bfs_frontier_step(
+                pos, min_x=0, max_x=self.knowledge["grid_width"] - 1
+            )
 
         width = self.knowledge["grid_width"]
         height = self.knowledge["grid_height"]
@@ -150,8 +152,7 @@ class BaseRobot(mesa.Agent):
         if mode == "random":
             return self._plan_random_step_in_range(pos, min_x, max_x)
         if mode == "bfs":
-            # BFS reserved but not implemented yet: use sweep behavior.
-            pass
+            return self._plan_bfs_frontier_step(pos, min_x=min_x, max_x=max_x)
 
         width = self.knowledge["grid_width"]
         height = self.knowledge["grid_height"]
@@ -214,6 +215,79 @@ class BaseRobot(mesa.Agent):
         if not valid:
             return None
         return self.random.choice(valid)
+
+    def _plan_bfs_frontier_step(self, pos, min_x, max_x):
+        """
+        Frontier-based BFS exploration.
+
+        Computes the set of frontier cells, unvisited cells reachable
+        from any visited cell, then runs BFS from `pos` to find the
+        nearest one. Returns the first step along that path, or None
+        when every reachable cell has already been visited.
+        """
+        visited = self.knowledge["visited"]
+        width   = self.knowledge["grid_width"]
+        height  = self.knowledge["grid_height"]
+
+        # 1. Build the frontier set
+        # A frontier cell is: unvisited, within x-range, and adjacent to
+        # at least one visited cell (so it is "known to exist").
+        frontier = set()
+        for vx, vy in visited:
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                nx, ny = vx + dx, vy + dy
+                candidate = (nx, ny)
+                if (
+                    0 <= nx < width
+                    and 0 <= ny < height
+                    and min_x <= nx <= max_x
+                    and candidate not in visited
+                ):
+                    frontier.add(candidate)
+
+        if not frontier:
+            return None  # Entire accessible area has been visited
+
+        # 2. BFS from current position to nearest frontier cell
+        queue    = deque()
+        queue.append((pos, [pos]))   # (current_node, path_so_far)
+        seen     = {pos}
+
+        while queue:
+            current, path = queue.popleft()
+
+            if current in frontier:
+                # path[0] is pos itself; path[1] is the first move
+                if len(path) >= 2:
+                    return path[1]
+                return current   # already adjacent, move directly
+
+            cx, cy = current
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                nxt = (cx + dx, cy + dy)
+                if (
+                    nxt not in seen
+                    and 0 <= nxt[0] < width
+                    and 0 <= nxt[1] < height
+                    and min_x <= nxt[0] <= max_x
+                    and self.can_move_to(nxt)
+                ):
+                    seen.add(nxt)
+                    queue.append((nxt, path + [nxt]))
+
+        # 3. No path found, fall back to a random valid neighbor
+        neighbors = [
+            (pos[0] + dx, pos[1] + dy)
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]
+        ]
+        valid = [
+            n for n in neighbors
+            if 0 <= n[0] < width
+            and 0 <= n[1] < height
+            and min_x <= n[0] <= max_x
+            and self.can_move_to(n)
+        ]
+        return self.random.choice(valid) if valid else None
 
     def _remember_move(self, pos):
         """Track recent positions to avoid short loops."""

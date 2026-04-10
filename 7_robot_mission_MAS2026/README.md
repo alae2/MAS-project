@@ -296,6 +296,45 @@ This ensures waste deposited at zone boundaries is picked up promptly without re
 
 This prevents the robot from entering ping-pong loops when it has covered all nearby cells.
 
+### Current BFS Policy (Frontier-Based Coverage)
+
+When `exploration_mode="bfs"`, robots use a frontier-based BFS policy to guide exploration.
+
+Core idea:
+
+1. Compute the frontier: all unvisited in-range cells adjacent to at least one visited cell.
+2. Run BFS from the current position to the nearest frontier cell, respecting zone constraints.
+3. Return the first hop of the shortest path found.
+4. If no path exists (robot is isolated in a fully-visited pocket), fall back to a random valid neighbour.
+
+A frontier cell is an unvisited in-range cell that borders at least one visited cell.
+
+Movement safety guarantee:
+
+- BFS returns the first hop of a shortest path only.
+- The returned target is always one Von Neumann neighbour away.
+- No jump moves are possible.
+
+```mermaid
+flowchart TD
+    A[Step start: robot at pos] --> B[Compute frontier\nunvisited in-range cells adjacent to visited]
+    B --> C{Frontier empty?}
+    C -- Yes --> G[Return None]
+    C -- No --> D[BFS from pos to nearest frontier cell\nrespecting can_move_to and x-range]
+    D --> E{Path found?}
+    E -- Yes --> H[Return first hop of path]
+    E -- No --> F[Random valid in-range neighbour]
+    F --> I{Any valid neighbour?}
+    I -- Yes --> H
+    I -- No --> G
+```
+
+Why this improves coverage near borders/frontiers:
+
+- Exploration pressure is directed toward the boundary between known and unknown space.
+- Zone and range constraints (`min_x`, `max_x`) are enforced in both BFS expansion and fallback.
+- `can_move_to()` is called on every BFS expansion step, so zone boundaries are respected without explicit zone tracking in the pathfinder.
+
 ### Zone Return Logic
 
 If a Yellow or Red robot drifts too far west, it immediately redirects eastward until back in its operational zone. This prevents robots from spending cycles searching in zones where their target waste cannot appear.
