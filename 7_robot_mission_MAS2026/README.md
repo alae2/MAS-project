@@ -394,6 +394,116 @@ This is a **tightly coupled pipeline** by design, each robot type depends on the
 
 ## 9. Configurations Tested
 
+### 9.1 Naming Convention
+Each config file is named `config_M<x>_R<y>_W<z>_C<c>.json`, encoding all four experimental dimensions:
+
+| Token | Dimension | Values |
+|-------|-----------|--------|
+| `M` | Exploration Mode | `M0` Sweep · `M1` Random · `M2` BFS |
+| `R` | Robot Density | `RL` Low (2/1/1) · `RM` Medium (3/2/1) · `RH` High (6/4/2) |
+| `W` | Waste Density | `WS` Sparse · `WB` Balanced · `WH` Heavy |
+| `C` | Communication | `C0` OFF · `C1` ON |
+
+### 9.2 Experimental Dimensions
+
+Each config is run with **3 seeds** (7, 16, 32) → **108 runs total** (36 configs × 3 seeds).
+
+The 6 scenarios per mode were chosen to cover extremes (RL+WH, RH+WH), a neutral baseline
+(RM+WB), and mid-range cases (RM+WS, RH+WB, RL+WS). Communication is tested as a clean
+independent variable across all combinations.
+
+
+### 9.3 Design Rationale
+
+Configurations were chosen to form a **full factorial sub-design** across the four dimensions, allowing isolation of each factor's effect:
+
+- **Communication vs. no communication** is tested across all mode × density combinations, making `C` a clean independent variable.
+- **RL + WH** is an intentionally stressful combination (few robots, heavy waste) that reveals the upper bound of collection time and highlights where communication helps most.
+- **RH + WS** tests the opposite extreme: many robots competing for few waste items, where communication overhead may not be beneficial.
+- **RM + WB** acts as the neutral baseline present across all three modes, enabling direct mode-to-mode comparison under identical conditions.
+- Seeds 7, 16, and 32 were chosen to assess result stability without inflating run count. Variance across seeds reflects sensitivity to initial waste and robot placement.
+
+
+### 9.4 Key Metrics Collected
+
+Each run records the following at every simulation step:
+
+| Metric | Description |
+|--------|-------------|
+| `Waste_Disposed` | Cumulative waste successfully disposed (primary KPI) |
+| `Global_Coverage` | Mean visited-cell ratio across all 3 zones |
+| `Avg_Green_Collection_Time` | Mean steps between a green robot's 1st and 2nd pickup |
+| `Avg_Yellow_Collection_Time` | Same metric for yellow robots |
+| `Visited_Ratio_Z1/Z2/Z3` | Per-zone exploration coverage |
+| `Green/Yellow/Red_Waste_Ground` | Remaining waste on the grid per type |
+| `Green_to_Yellow_Transformations` | Cumulative green→yellow merges |
+| `Yellow_to_Red_Transformations` | Cumulative yellow→red merges |
+| `*_Robots_With_Inventory` | Count of robots currently carrying waste |
+
+### 9.5 Results & Analysis
+
+#### 9.5.1 Disposal Performance
+![Disposal Bars](experiments/fig1_disposal_bars.png)
+
+**Robot density is the dominant factor.** High-density deployments consistently dispose
+the most waste regardless of mode. BFS edges ahead under High robots + Heavy waste (~8
+units vs ~7.4 for Sweep, ~6 for Random). Random underperforms in every non-trivial
+scenario, disposing 10–40% less than Sweep and BFS due to redundant revisits.
+Low robot density bottlenecks all modes below 5.5 units even under heavy load.
+
+
+#### 9.5.2 Search Efficiency
+![Efficiency Scatter](experiments/fig2_efficiency_scatter.png)
+
+Sweep and BFS both reach 0.45–0.65 global coverage with low collection times (bottom-right
+= ideal). Random scatters widely with two outliers exceeding 125 steps average collection
+time at under 45% coverage. Low robot density (large circles) consistently pushes
+collection time up regardless of mode — fewer agents means longer waits between pickups.
+
+
+#### 9.5.3 Communication Impact
+![Communication Impact](experiments/fig5_communication_impact.png)
+
+Communication (C1) shows **no clear benefit** — it slightly reduces mean disposal across
+all three modes. The rendezvous overhead consumes steps that would otherwise be spent
+exploring. The effect is near-neutral (overlapping CIs) and would only be expected to
+help under very sparse waste or much longer step budgets.
+
+#### 9.5.4 Robot × Waste Heatmap
+![Heatmap](experiments/fig6_heatmap_disposal.png)
+
+The disposal gradient runs diagonally: High robots + Heavy waste always peaks (dark
+green), Low robots + Sparse waste always bottoms out. Random's Low/Heavy cell reaches
+only 3.3 vs 5.0–5.2 for Sweep and BFS — a 35–38% gap showing poor coverage even when
+waste is abundant.
+
+#### 9.5.5 Seed Reliability
+![Seed Reliability](experiments/fig3_seed_reliability.png)
+
+BFS has the widest IQR — best in favourable conditions, worst in unfavourable ones.
+Random is the most consistent but consistently mediocre. Sweep offers the best balance:
+competitive ceiling, reasonable floor, no zeros except in the hardest Low/Sparse configs.
+
+#### 9.5.6 Exploration Stability
+![Coverage Stability](experiments/fig4_coverage_stability.png)
+
+Sweep and BFS hold steady at 0.42–0.50 coverage across all three seeds with narrow CIs.
+Random sits ~0.10 lower with wider variance. All curves are flat — results are driven by
+algorithm design, not by lucky initialisation.
+
+#### 9.5.7 Summary
+
+| Criterion | Winner | Runner-up |
+|-----------|--------|-----------|
+| Raw throughput (heavy load) | BFS | Sweep |
+| Exploration coverage | Sweep | BFS |
+| Consistency across seeds | Sweep | BFS |
+| Worst-case robustness | Sweep | BFS |
+| Communication benefit | — (neutral) | — |
+
+> **Recommendation:** Use **Sweep + Communication OFF** for unknown deployment conditions.
+> Switch to **BFS** only when robot and waste densities are both high.
+
 ---
 
 ## 10. How to Run
