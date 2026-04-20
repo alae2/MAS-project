@@ -47,6 +47,13 @@ We summarize these static agents in the diagram below:
 As you can see in the figure above, the environment is a grid divided into three zones (z1, z2 and z3). We choose a linear division for the sake of simplicity. The disposal zone (set of `WasteDisposalZone` agents)is located at the eastern border of the grid. Each cell of the grid contains a `RadioactivityCell` agent. At the beginning of the simulation, `Waste` agents are randomly generated and placed in the grid, this generation is constrained by the fact that green waste can only be generated in z1, yellow waste in z2 and red waste in z3. The quantity of each waste type is configurable. Robots are also randomly generated and placed in the grid at the beginning of the simulation, constrained by their zone access (e.g., green robots can only be generated in z1 while yellow robots can be generated in z1 and z2).
 
 
+The model is implemented as `RobotMissionModel` class (cf. `model.py`) which inherits from `mesa.Model`. The model handles the initialization of the environment and the agents (robots, waste etc), perception and action execution. It also handles stats collection.
+
+#### Knowledge & Perception
+The perception process is implemented in the `perceive` method of the model. The perceived information contains data about the robot's current cell (e.g., `agent_pos`, `waste_here`, `agents_here`, `radioactivity`etc) but also about the neighbour cells (e.g., `neighbor_waste` and `neighbor_radioactivity`). Note that robots do not perceive any information about the zones frontiers, theis information is inferred from the radioactivity levels of the cells. 
+
+The perceived information is 
+
 
 
 
