@@ -1,6 +1,7 @@
 # MAS PROJECT 2026: Robot Waste Collection
 ### Group 7
 
+### Alae Taoudi, Ouissal Boutouatou, Mohammed Sbaihi
 ---
 
 ## Table of Contents
@@ -52,7 +53,9 @@ This project implements a **Multi-Agent Based Simulation (MABS)** of a robot was
 - **Multiple autonomous agents**: Three robot types act independently with encapsulated state and decision logic.
 - **Shared environment**: A 2D grid divided into three radioactivity zones, serving as the common medium through which agents interact indirectly (via waste objects).
 - **Distributed problem solving**: Each sub-problem (collection, transformation, transport) is solved by a specialized agent type; the global solution (complete disposal) emerges from local behaviors.
-- **No direct communication** (Step 1): Agents do not send messages to each other. All coordination is implicit via the environment.
+- **Optional direct communication** (toggleable): By default, all coordination is implicit via the environment (waste objects at zone frontiers). When `communication_enabled=True`, Green and Yellow robots can additionally engage in a contract-based rendezvous to transfer a single waste unit between each other (see §7).
+
+The robots are implemented in `agents.py`, the passive objects (waste, radioactivity cells, disposal zones) in `objects.py`, and the overall model logic in `model.py`. We provide the UML diagrams of the agent classes below for clarity (these diagrams do not show the communication mechanism and they only show the main methods for readability, for the full implementation please refer to the code files).:
 
 ![MAS-UML-1](figures/uml-agents-1.png)
 ![Objects](figures/uml-objects-1.png)
@@ -126,7 +129,6 @@ The simulation is designed to answer:
 
 Each robot executes the following procedural loop every step:
 
-![PDA loop](figs/fig5_pda_loop.png)
 
 ```python
 def step_agent(self):
@@ -146,15 +148,15 @@ Each step, `model.perceive()` returns a dictionary of **dynamic, observable info
 
 ```python
 percepts = {
-    "agent_pos":      current (x, y),
-    "waste_here":     [Waste objects in current cell, filtered by accessibility],
-    "agents_here":    [other robot agents in current cell],
-        "neighbor_waste": [nearby waste with positions and types],
-        "neighbor_radioactivity": [adjacent cells with zone and radioactivity],
-    "radioactivity":  float in [0, 1],
-    "zone":           "z1" | "z2" | "z3",
-    "disposal_zone_x": rightmost column x-coordinate,
-    "action_failed":  bool - True if last action was rejected by model.do()
+    "agent_pos":               current (x, y),
+    "waste_here":              [Waste objects in current cell, filtered by accessibility],
+    "agents_here":             [other robot agents in current cell],
+    "neighbor_waste":          [nearby waste with positions and types],
+    "neighbor_radioactivity":  [adjacent cells with zone and radioactivity],
+    "radioactivity":           float in [0, 1],
+    "comm_enabled":            bool - whether communication is active this run,
+    "comm_assignment":         dict | None - active contract assignment for this robot,
+    "action_failed":           bool - True if last action was rejected by model.do()
 }
 ```
 
@@ -170,7 +172,6 @@ The design principle: `deliberate()` reads only from `knowledge`. It never calls
 
 All robot types share the same priority hierarchy, the first applicable rule fires and the rest are skipped:
 
-![Deliberation priority](figs/fig6_deliberation.png)
 
 ### Green Robot Deliberation
 
@@ -260,66 +261,52 @@ Yellow and red robots can also pick waste directly from the frontier column, thi
 
 ## 6. Agent Behavioral Strategies
 
-### Exploration Strategy: Systematic Sweep + Frontier Scanning
+### Exploration Strategies
 
-Rather than random walk, robots use a **boustrophedon (lawnmower) sweep**:
+Three exploration strategies are implemented and selectable at runtime via the `exploration_mode` parameter. They are referred to as `M0`, `M1`, and `M2` in the experiment naming convention defined in §9.1.
+
+#### Sweep
+
+Robots follow a **lawnmower sweep**: east along a row, one step south, then west along the next row, repeating until the zone is fully covered.
 
 ![Sweep strategy](figures/exploration.png)
 
-The left panel shows the sweep pattern, the robot passes east along a row, steps south, then sweeps back west, covering the zone row by row. The right panel shows `_prefer_unvisited()` in action: when the natural sweep candidate is already visited, the robot picks a random unvisited neighbor instead (highlighted in yellow), maximising coverage.
+The left panel shows the sweep pattern. The right panel shows `_prefer_unvisited()` in action: when the natural next cell is already visited, the robot picks a random unvisited neighbor instead (highlighted in yellow), maximising coverage without restarting the sweep.
 
-- Direction tracked in `knowledge["sweep_dir"]` as `"east"` or `"west"`
-- On hitting a zone boundary, robot steps one cell south and reverses direction
-- When the candidate step is already visited, the robot biases toward any unvisited neighbor
-- Recent move history (last 20 positions) prevents immediate backtracking
+**How it works:**
+- Direction is tracked in `knowledge["sweep_dir"]` as `"east"` or `"west"`
+- On hitting a zone boundary the robot steps one cell south and reverses direction
+- The anti-backtracking helper `_prefer_unvisited()` (see below) deflects the robot toward unvisited cells whenever the primary candidate has already been seen
 
-### Frontier Scanning (Yellow & Red Robots)
+**Characteristics:** systematic, predictable, high coverage, low variance across seeds. Experimental results show it achieves 0.42–0.50 global coverage consistently and is the recommended default for unknown deployment conditions.
 
-Yellow and Red robots additionally perform periodic **frontier scans** to detect waste deposited by upstream robots:
+#### Random Walk
 
-![Frontier scan](figs/fig4_frontier_scan.png)
+At each step the robot picks one valid Von Neumann neighbor uniformly at random, constrained to its accessible zone. No memory of previously visited cells is used.
 
-1. Every `frontier_check_interval` steps (default: 8), `frontier_mode` activates
-2. Robot navigates to its `pickup_frontier` x-column
-3. Robot sweeps the full y-axis of that column
-4. After completing the scan, counter resets and normal sweep resumes
+**How it works:**
+- All four neighbors `(pos ± 1)` are enumerated
+- Any neighbor outside bounds or in a forbidden zone is discarded
+- One of the remaining valid neighbors is chosen with equal probability via `self.random.choice()`
 
-This ensures waste deposited at zone boundaries is picked up promptly without requiring any direct communication between robot types.
+**Characteristics:** zero overhead, but high redundancy — the same cells are revisited frequently. Experimental results show it disposes 10–40% less waste than Sweep or BFS and sits ~0.10 lower on global coverage with wider variance.
 
-### Anti-Backtracking
+#### Frontier-Based BFS
 
-`_prefer_unvisited(pos, candidate)` applies a three-level fallback:
+Robots maintain a `visited` set and use BFS to always navigate toward the **nearest unvisited cell on the known/unknown boundary** (the "frontier").
 
-1. **Candidate unvisited** -> use it directly
-2. **Candidate visited, unvisited neighbor exists** -> pick a random unvisited neighbor
-3. **All neighbors visited** -> pick any neighbor that isn't where the robot just came from (`move_history[-2]`)
+**How it works:**
 
-This prevents the robot from entering ping-pong loops when it has covered all nearby cells.
-
-### Current BFS Policy (Frontier-Based Coverage)
-
-When `exploration_mode="bfs"`, robots use a frontier-based BFS policy to guide exploration.
-
-Core idea:
-
-1. Compute the frontier: all unvisited in-range cells adjacent to at least one visited cell.
-2. Run BFS from the current position to the nearest frontier cell, respecting zone constraints.
-3. Return the first hop of the shortest path found.
-4. If no path exists (robot is isolated in a fully-visited pocket), fall back to a random valid neighbour.
-
-A frontier cell is an unvisited in-range cell that borders at least one visited cell.
-
-Movement safety guarantee:
-
-- BFS returns the first hop of a shortest path only.
-- The returned target is always one Von Neumann neighbour away.
-- No jump moves are possible.
+1. **Build the frontier**: any unvisited, in-range cell that is adjacent to at least one already-visited cell.
+2. **BFS to nearest frontier cell**: starting from the robot's current position, expand outward respecting `can_move_to()` and the zone x-range until a frontier cell is reached.
+3. **Return the first hop** of the shortest path found — always a single Von Neumann step, so no jump moves are possible.
+4. **Fallback**: if the entire accessible area has been visited, or no path exists, fall back to a random valid neighbor.
 
 ```mermaid
 flowchart TD
     A[Step start: robot at pos] --> B[Compute frontier\nunvisited in-range cells adjacent to visited]
     B --> C{Frontier empty?}
-    C -- Yes --> G[Return None]
+    C -- Yes --> G[Return None / fallback]
     C -- No --> D[BFS from pos to nearest frontier cell\nrespecting can_move_to and x-range]
     D --> E{Path found?}
     E -- Yes --> H[Return first hop of path]
@@ -329,15 +316,37 @@ flowchart TD
     I -- No --> G
 ```
 
-Why this improves coverage near borders/frontiers:
+**Characteristics:** directed exploration pressure toward the boundary between known and unknown space. Achieves the highest raw disposal throughput under high robot + heavy waste conditions, but has the widest IQR across seeds — best in favourable conditions, worst in unfavourable ones.
 
-- Exploration pressure is directed toward the boundary between known and unknown space.
-- Zone and range constraints (`min_x`, `max_x`) are enforced in both BFS expansion and fallback.
-- `can_move_to()` is called on every BFS expansion step, so zone boundaries are respected without explicit zone tracking in the pathfinder.
+---
 
-### Zone Return Logic
+### Shared Mechanisms (all strategies)
 
-If a Yellow or Red robot drifts too far west, it immediately redirects eastward until back in its operational zone. This prevents robots from spending cycles searching in zones where their target waste cannot appear.
+#### Anti-Backtracking: `_prefer_unvisited()`
+
+Used by Sweep and as a fallback in BFS. Applies a three-level priority:
+
+1. **Candidate unvisited** → use it directly
+2. **Candidate visited, unvisited neighbor exists** → pick a random unvisited neighbor
+3. **All neighbors visited** → pick any neighbor that isn't the robot's previous position (`move_history[-2]`)
+
+This prevents ping-pong loops without requiring a full BFS traversal.
+
+#### Frontier Scanning (Yellow & Red Robots)
+
+Regardless of exploration strategy, Yellow and Red robots perform periodic **frontier scans** to detect waste deposited by upstream robots at zone boundaries:
+
+
+1. Every `frontier_check_interval` steps (default: `width + height`, i.e. 60 on a 40×20 grid), `frontier_mode` activates
+2. The robot navigates to its `pickup_frontier` x-column (the z1/z2 boundary for Yellow, z2/z3 for Red)
+3. The robot sweeps the full y-axis of that column top-to-bottom
+4. After completing the scan, the counter resets and normal exploration resumes
+
+This ensures waste deposited at zone boundaries is detected promptly without requiring direct communication between robot types.
+
+#### Zone Return Logic
+
+If a Yellow or Red robot drifts too far west (into a zone where its target waste cannot appear), it immediately redirects eastward until back in its operational zone. This prevents robots spending cycles in unreachable areas regardless of which exploration strategy is active.
 
 ---
 
@@ -345,9 +354,7 @@ If a Yellow or Red robot drifts too far west, it immediately redirects eastward 
 
 ### Indirect Coordination
 
-Agents coordinate **indirectly** through the environment, without any direct communication:
-
-![Stigmergy](figs/fig7_coordination.png)
+Agents coordinate **indirectly** through the environment as their primary coordination mechanism. When `communication_enabled=False`, this is the only form of coordination:
 
 ```
 Green Robot deposits yellow waste at x = z1_end (deposit_frontier)
@@ -359,6 +366,52 @@ Red Robot perceives red waste during sweep or frontier scan
 ```
 
 This is a **tightly coupled pipeline** by design, each robot type depends on the output of the upstream type, but **loosely coupled** in terms of agent interactions: no agent makes assumptions about the internal state of another.
+
+### Direct Communication: Contract-Based Rendezvous (optional)
+
+When `communication_enabled=True`, Green and Yellow robots gain the ability to coordinate directly when one of them has been stuck carrying a single transformable waste for too long.
+
+#### Problem it solves
+
+A robot that picked up one green (or yellow) waste may fail to find a second matching waste nearby for many steps, stalling the pipeline. Without communication it must keep sweeping and hoping. With communication, two such "lonely carrier" robots can find each other and transfer a waste unit so the receiver immediately holds two and can transform.
+
+#### Architecture: blackboard with contract channels
+
+The model maintains a lightweight **blackboard** (`self._comm`) with two independent channels:
+
+| Channel | Participants | Zone |
+|---------|-------------|------|
+| `green` | GreenRobots | z1 |
+| `yellow` | YellowRobots | z1 + z2 |
+
+Each channel stores:
+- `waiting` — robots that have signalled a need and are waiting to be matched
+- `contracts` — active pairing agreements between two robots
+- `robot_to_contract` — fast lookup from robot ID to its active contract
+
+#### Step-by-step protocol
+
+| Step | Phase | Who | What happens |
+|------|-------|-----|--------------|
+| 1 | **Trigger** | Robot | Holds exactly 1 transformable waste for ≥ 12 steps → emits `{"action": "comm_need", "channel": "green"\|"yellow"}` |
+| 2 | **Register** | `_do_comm_need()` | Validates robot state, adds it to `waiting[channel]`, then immediately calls `_comm_try_match()` |
+| 3 | **Match** | `_comm_try_match()` | Scans all waiting pairs, picks the closest two (Manhattan distance), creates a contract with a `meet_pos` (midpoint of their positions, clamped to channel zone) and an expiry of 25 steps. Assigns lower `unique_id` as **receiver**, higher as **donor** |
+| 4 | **Navigate** | Both robots | `_comm_get_assignment()` injects the contract into percepts each step. `_comm_action_from_assignment()` moves each robot one step at a time toward `meet_pos` via `_step_toward()` |
+| 5 | **Transfer** | Donor | Once both robots share the same cell at `meet_pos`, donor emits `{"action": "transfer", ...}`. `_do_transfer()` validates the contract and moves one waste object from `donor.inventory` to `receiver.inventory` |
+| 6 | **Outcome** | Both robots | Receiver now holds 2 wastes → transforms on the next step. Donor resumes normal exploration with an empty inventory |
+| 7 | **Cleanup** | `_comm_cleanup()` | Runs every model step to expire contracts that exceeded their 25-step timeout and remove stale waiting entries |
+
+#### Key design properties
+
+- **No global knowledge required**: robots only know their own position and the `meet_pos` from their contract. They navigate using one-step moves.
+- **Nearest-first matching**: `_comm_try_match()` always pairs the two closest waiting robots, minimising total travel distance to the rendezvous.
+- **Contract timeout**: contracts expire after 25 steps, freeing robots to re-register or resume sweeping if the rendezvous fails (e.g. one robot was busy for a different reason).
+- **Metric coherence**: `_do_transfer()` updates the first→second pickup timing metrics so that waste transferred via communication is counted the same way as waste collected directly from the ground.
+- **Encapsulation preserved**: `deliberate()` never calls `self.model`. The assignment arrives through percepts; the robot only returns an action dict. The model executes the transfer.
+
+#### Why communication had limited benefit in experiments
+
+See §9.5.3. The rendezvous overhead (steps spent travelling to `meet_pos`) consumed cycles that would otherwise be spent sweeping. The threshold of 12 steps is aggressive enough that robots trigger communication before they would have found waste by normal sweep. The effect was near-neutral on disposal count and communication is recommended off for unknown conditions.
 
 ### Scheduling
 
@@ -590,7 +643,7 @@ robot_mission_MAS2026/
 - **Minimal knowledge per robot**: each robot type is given only the frontier coordinates relevant to its role. Shared constants (`grid_width`, `grid_height`) live in `knowledge` from `__init__`; dynamic observations arrive via percepts. `deliberate()` never accesses `self.model`.
 - **Action feasibility in `model.do()`**: the environment is the sole authority on what is possible, agents cannot directly modify the grid; all changes go through `do()`.
 - **Frontier scanning**: periodic proactive behavior prevents yellow/red robots from missing deposited waste even when their systematic sweep hasn't yet reached the frontier.
-- **No communication (Step 1)**: coordination via environment (stigmergy) is sufficient for the pipeline to function correctly.
+- **Communication is optional**: stigmergic coordination via the environment is sufficient for the pipeline to function correctly. Direct communication (contract-based rendezvous) is available as an opt-in layer that helps in sparse-waste scenarios but adds rendezvous overhead; experimental results show it is near-neutral on disposal throughput (see §9.5.3).
 
 ### Known Limitations
 

@@ -1,15 +1,32 @@
-# MAS-project
+# MAS PROJECT 2026: Robot Waste Collection
+### Group 7
 
-Welcome to our Multi-Agent Systems project repository! This project was developed as part of the SMA course at CentraleSupélec. This README works as a report for the project where we will explain the problem we are trying to solve, the approach we took (including design choices and algorithms) and the results we obtained.
+### Alae Taoudi, Ouissal Boutouatou, Mohammed Sbaihi
+---
 
-This project was developed by Group 7: Ouissal Boutouatou, Alae Taoudi & Mohammed Sbaihi.
+## Table of Contents
 
-## Problem Statement
-We simulate a hostile (radioactive) environment where a set of robots (agents) must complete the following mission: they must explore the environment, collect waste, transform it and then dispose of it in a safe location.
+1. [Project Overview](#1-project-overview)
+2. [MAS Architecture Definition](#2-mas-architecture-definition)
+3. [System Scope & Experimental Framework](#3-system-scope--experimental-framework)
+4. [Agent Architecture](#4-agent-architecture)
+5. [Environment Design](#5-environment-design)
+6. [Agent Behavioral Strategies](#6-agent-behavioral-strategies)
+7. [Interaction & Organization](#7-interaction--organization)
+8. [Evaluation Criteria & Results](#8-evaluation-criteria--results)
+9. [Configurations Tested](#9-configurations-tested)
+10. [How to Run](#10-how-to-run)
+11. [File Structure](#11-file-structure)
 
-The environment is divided into three zones: z1, z2 and z3. It also contains a disposal zone where the final transformed waste must be deposited.
+---
 
-There are three types of robots: Green, Yellow & Red robots. Different robot types process different types of waste and have different access to different zones. The table below summarizes the capabilities and zone access for each robot type:
+## 1. Project Overview
+
+This project implements a **Multi-Agent Based Simulation (MABS)** of a robot waste collection mission. Multiple autonomous robots collaborate to collect, transform, and safely dispose of radioactive waste across a three-zone environment with varying levels of radioactivity.
+
+![Grid layout](7_robot_mission_MAS2026/figures/fig1_grid_layout.png)
+
+### Mission Summary
 
 | Robot Type | Capabilities | Zone Access |
 |---|---|---|
@@ -17,47 +34,619 @@ There are three types of robots: Green, Yellow & Red robots. Different robot typ
 | Yellow Robot | Collects yellow waste (×2), transforms -> 1 red, deposits at z2/z3 frontier | z1 + z2 |
 | Red Robot | Collects red waste (×1), transports to disposal column | z1 + z2 + z3 |
 
+### Waste Processing Pipeline
+
 ![Pipeline](7_robot_mission_MAS2026/figures/fig2_pipeline.png)
 
-## Implementation
-### Agents
+```
+[Green Waste × 2] -> [Green Robot] -> [Yellow Waste × 1]
+[Yellow Waste × 2] -> [Yellow Robot] -> [Red Waste × 1]
+[Red Waste × 1]   -> [Red Robot]   -> [DISPOSED]
+```
 
-Agents refer to the robots in our simulation, but also to the waste items and radioactivity sources. In other words, the classes we implemented all inherit from the `Agent`class provided by `mesa`. 
+---
 
-#### Robot Agents
-Since the three types of robots share a lot of common features, we implemented a `BaseRobot` class from which the three robot types inherit (cf. `agents.py`). This allows us to avoid code duplication and to easily manage the common features of the robots, while still allowing for different deliberation processes for each robot type as you can see in the diagram below.
+## 2. MAS Architecture Definition
+
+### What makes this a MAS?
+
+- **Multiple autonomous agents**: Three robot types act independently with encapsulated state and decision logic.
+- **Shared environment**: A 2D grid divided into three radioactivity zones, serving as the common medium through which agents interact indirectly (via waste objects).
+- **Distributed problem solving**: Each sub-problem (collection, transformation, transport) is solved by a specialized agent type; the global solution (complete disposal) emerges from local behaviors.
+- **Optional direct communication** (toggleable): By default, all coordination is implicit via the environment (waste objects at zone frontiers). When `communication_enabled=True`, Green and Yellow robots can additionally engage in a contract-based rendezvous to transfer a single waste unit between each other (see §7).
+
+The robots are implemented in `agents.py`, the passive objects (waste, radioactivity cells, disposal zones) in `objects.py`, and the overall model logic in `model.py`. We provide the UML diagrams of the agent classes below for clarity (these diagrams do not show the communication mechanism and they only show the main methods for readability, for the full implementation please refer to the code files).:
 
 ![MAS-UML-1](7_robot_mission_MAS2026/figures/uml-agents-1.png)
-
-Robots have three main attributes: `robot_type` (e.g., "Green", "Yellow", "Red"), `inventory` (carried waste) and `knowledge` which stores the robot's knowledge about the environment and about itself. The `knowledge` attribute will be explained in more details later in the report.
-
-#### Waste Agents
-Waste items (cf. `Waste` class implementation in `objects.py`) are also implemented as agents and are randomly generated and placed in the environment at the beginning of the simulation. The have three attributes: `waste_type`, `collected` (whether the waste has been collected, for stats and visualization purposes) and `carried_by` (id of the agent currently carrying the waste, if any).
-
-#### Radioactivity Agents
-Each cell on the grid contains a `RadioactivityCell` agent. This agent has a `radioactivity_level` attribute (between 0 and 1) which also helps identify the zone of the cell (z1, z2 or z3) stored in the `zone_name` attribute. These agents help Robots identify in which zone they currently are, as no grid frontier information is explicitly given to them.
-
-#### Waste Disposal Agents
-`WasteDisposalZone` agents represent the waste disposal part of the environment. They have no attribute.
-
-We summarize these static agents in the diagram below:
-![MAS-UML-2](7_robot_mission_MAS2026/figures/uml-objects-1.png)
-
-### Environment & Model
-As you can see in the figure above, the environment is a grid divided into three zones (z1, z2 and z3). We choose a linear division for the sake of simplicity. The disposal zone (set of `WasteDisposalZone` agents)is located at the eastern border of the grid. Each cell of the grid contains a `RadioactivityCell` agent. At the beginning of the simulation, `Waste` agents are randomly generated and placed in the grid, this generation is constrained by the fact that green waste can only be generated in z1, yellow waste in z2 and red waste in z3. The quantity of each waste type is configurable. Robots are also randomly generated and placed in the grid at the beginning of the simulation, constrained by their zone access (e.g., green robots can only be generated in z1 while yellow robots can be generated in z1 and z2).
+![Objects](7_robot_mission_MAS2026/figures/uml-objects-1.png)
 
 
-The model is implemented as `RobotMissionModel` class (cf. `model.py`) which inherits from `mesa.Model`. The model handles the initialization of the environment and the agents (robots, waste etc), perception and action execution. It also handles stats collection.
+### Agent Classification
 
-#### Knowledge & Perception
-The perception process is implemented in the `perceive` method of the model. The perceived information contains data about the robot's current cell (e.g., `agent_pos`, `waste_here`, `agents_here`, `radioactivity`etc) but also about the neighbour cells (e.g., `neighbor_waste` and `neighbor_radioactivity`). Note that robots do not perceive any information about the zones frontiers, theis information is inferred from the radioactivity levels of the cells. 
+Our robots are **cognitive agents**:
 
-The perceived information is 
+| Property | Our Implementation |
+|---|---|
+| Internal state | `self.knowledge` dict: position, inventory beliefs, visited cells, move history, sweep direction, frontier mode |
+| Memory | `visited` set tracking explored cells; `move_history` for backtrack avoidance |
+| Deliberation | `deliberate(knowledge)` reasons from beliefs to prioritized actions |
+| Action failures | `model.do()` validates feasibility; agent continues if action fails |
+| Planning | No explicit planner, but goal-driven prioritized action selection |
+
+> The `deliberate()` function takes only `knowledge` as input, it has **no access to external variables**, fulfilling the encapsulation requirement from the specification.
+
+### Environment Properties
+
+| Property | Classification | Justification |
+|---|---|---|
+| Observability | **Partially observable** | Agents only perceive their cell + 4 Von Neumann neighbors |
+| Determinism | **Deterministic** | `model.do()` applies actions with guaranteed, unique effects |
+| Dynamism | **Dynamic** | Other agents modify the environment (collect/deposit waste) between steps |
+| Discreteness | **Discrete** | Finite grid cells, finite action set, integer steps |
+
+### Coupling Level
+
+This MAS is **loosely coupled**: no agent makes assumptions about other agents' states, positions, or intentions. All inter-agent coordination flows through the environment (waste objects at zone frontiers). This ensures robustness; removing or adding robots does not require design changes.
+
+### Autonomy Level
+
+- **Agent level**: Pro-active. Robots sweep zones autonomously, periodically scanning frontier columns without waiting for external triggers.
+- **Interaction level**: Full autonomy, robots never explicitly request anything from other robots or the environment beyond their percept/action cycle.
+- **MAS level**: No autonomy, robots are designed to achieve the collective mission. They follow well-defined zone rules and the global task emerges correctly by design.
+
+---
+
+## 3. System Scope & Experimental Framework
+
+Following M&S theory:
+
+### The Six M&S Entities
+
+| Entity | Definition in this project |
+|---|---|
+| **Source System** | A hypothetical nuclear site requiring autonomous robotic decontamination |
+| **Behavioral Database** | Observable data: waste counts per zone over time, disposal rate, robot cargo status |
+| **Experimental Scope** | Objectives: (1) validate that all waste is eventually disposed; (2) measure efficiency (steps to full disposal); (3) observe emergent bottlenecks |
+| **Model** | `model.py` + `agents.py` + `objects.py` : the full specification of environment and agent behaviors |
+| **Simulator** | Mesa framework (Python) + Solara visualization server |
+| **Modeling Relationship** | Acceptable simplification: robots are memoryless between sessions, no physical collisions, no energy constraints |
+| **Simulation Relationship** | Verified via Mesa's scheduler (`shuffle_do`) and `DataCollector`, which faithfully execute the model |
+
+### Objectives
+
+The simulation is designed to answer:
+
+1. **Correctness**: Can the multi-robot pipeline fully dispose of all waste within `max_steps`?
+2. **Efficiency**: How many steps does disposal take as a function of robot counts and initial waste quantities?
+3. **Bottleneck identification**: Which robot type creates the pipeline bottleneck?
+4. **Coverage**: Do robots explore their zones effectively, or do large amounts of waste remain uncollected?
+
+---
+
+## 4. Agent Architecture
+
+### The Perception–Deliberation–Action Loop
+
+Each robot executes the following procedural loop every step:
 
 
+```python
+def step_agent(self):
+    percepts = self.model.perceive(self)        # Step 1: Environment -> Agent
+    self.knowledge["pos"] = self.pos
+    self.knowledge["observations"] = percepts
+    self.knowledge["inventory"] = [w.waste_type for w in self.inventory]
+    self.knowledge["visited"].add(self.pos)
+    action = self.deliberate(self.knowledge)    # Step 2: Agent reasons
+    if action:
+        self.model.do(self, action)             # Step 3: Agent acts -> Environment
+```
+
+### What agents perceive
+
+Each step, `model.perceive()` returns a dictionary of **dynamic, observable information only**, what is physically present on the grid right now. Static environment constants (grid dimensions, zone boundaries, frontier coordinates) are given to each robot once at `__init__` time and are not re-sent every step.
+
+```python
+percepts = {
+    "agent_pos":               current (x, y),
+    "waste_here":              [Waste objects in current cell, filtered by accessibility],
+    "agents_here":             [other robot agents in current cell],
+    "neighbor_waste":          [nearby waste with positions and types],
+    "neighbor_radioactivity":  [adjacent cells with zone and radioactivity],
+    "radioactivity":           float in [0, 1],
+    "comm_enabled":            bool - whether communication is active this run,
+    "comm_assignment":         dict | None - active contract assignment for this robot,
+    "action_failed":           bool - True if last action was rejected by model.do()
+}
+```
+
+### Knowledge Base per Robot Type
+
+Each robot type receives exactly the information it needs, no more. Static values are set once at `__init__`; dynamic observations arrive every step via percepts.
+
+![Knowledge base](7_robot_mission_MAS2026/figures/uml-knowledge-1.png)
+
+The design principle: `deliberate()` reads only from `knowledge`. It never calls `self.model`, `self.grid`, or any attribute outside its argument. Zone boundaries and frontier positions are stored in `knowledge` at initialisation so the deliberation function remains fully encapsulated.
+
+### Deliberation Priority
+
+All robot types share the same priority hierarchy, the first applicable rule fires and the rest are skipped:
 
 
+### Green Robot Deliberation
+
+```
+if inventory has ≥ 2 green  ->  TRANSFORM to yellow
+if inventory has yellow     ->  move EAST until deposit_frontier, then PUT DOWN
+if green waste in cell      ->  PICK UP
+if green waste in neighbor  ->  MOVE toward it
+else                        ->  SWEEP z1 systematically
+```
+
+### Yellow Robot Deliberation
+
+```
+if inventory has ≥ 2 yellow  ->  TRANSFORM to red
+if inventory has red         ->  move EAST until deposit_frontier, then PUT DOWN
+if yellow waste in cell      ->  PICK UP
+if yellow waste in neighbor  ->  MOVE toward it
+periodically                 ->  FRONTIER SCAN at pickup_frontier (z1/z2 boundary)
+if drifted into z1           ->  return EAST to z2
+else                         ->  SWEEP z2 systematically
+```
+
+### Red Robot Deliberation
+
+```
+if inventory has red        ->  move EAST until disposal_x, then DISPOSE
+if red waste in cell        ->  PICK UP
+if red waste in neighbor    ->  MOVE toward it
+periodically                ->  FRONTIER SCAN at pickup_frontier (z2/z3 boundary)
+if drifted west of z3       ->  return EAST to z3
+else                        ->  SWEEP z3 systematically
+```
+
+---
+
+## 5. Environment Design
+
+### Grid & Zone Layout
+
+```
+x=0                x=w/3             x=2w/3            x=w-1
+|                  |                 |                  |
+|   z1             |   z2            |   z3             | <- disposal
+|   (radioactivity |  (radioactivity |   (radioactivity |   column
+|   0.00–0.33)     |   0.33–0.66)    |   0.66–1.00)     |
+|                  |                 |                  |
+Green Robots       Yellow Robots     Red Robots         <- zone access
+only               + z1              + z1 + z2
+```
+
+### Objects
+
+| Class | Type | Attributes | Behavior |
+|---|---|---|---|
+| `Waste` | Passive | `waste_type`, `collected`, `carried_by` | None — pure data object |
+| `RadioactivityCell` | Passive | `zone_name`, `radioactivity_level` | None, marks zone identity per cell |
+| `WasteDisposalZone` | Passive | (none) | None, marks disposal column |
+
+### Zone Restrictions (enforced by `model.do()`)
+
+- Green robots: `can_move_to(pos)` returns True only if `pos.x =< z1_end`
+- Yellow robots: `can_move_to(pos)` returns True only if `pos.x =< z2_end`
+- Red robots: unrestricted
+
+### Waste Accessibility Rules
+
+```python
+GreenRobot:  waste_type == GREEN  AND  pos.x =< z1_end
+YellowRobot: waste_type == YELLOW AND (pos.x == z1_end OR z1_end < pos.x =< z2_end)
+RedRobot:    waste_type == RED    AND (pos.x == z2_end OR pos.x > z2_end)
+```
+
+Yellow and red robots can also pick waste directly from the frontier column, this reduces unnecessary waiting for inter-robot handoffs.
+
+### Action Set
+
+| Action | Preconditions (checked by `model.do()`) | Effects |
+|---|---|---|
+| `move` | target within bounds, robot can enter zone | `grid.move_agent(agent, target_pos)` |
+| `pick_up` | waste in same cell, waste accessible to robot type | waste added to `agent.inventory`, removed from grid |
+| `transform` | ≥ 2 wastes of source type in inventory | source wastes removed, 1 new waste of target type added to inventory |
+| `put_down` | inventory non-empty, robot at correct frontier x-coordinate | waste placed on grid at robot's current cell |
+| `dispose` | inventory non-empty, robot at `disposal_zone_x` | waste removed from model, `waste_disposed += 1` |
+
+---
+
+## 6. Agent Behavioral Strategies
+
+### Exploration Strategies
+
+Three exploration strategies are implemented and selectable at runtime via the `exploration_mode` parameter. They are referred to as `M0`, `M1`, and `M2` in the experiment naming convention defined in §9.1.
+
+#### Sweep
+
+Robots follow a **lawnmower sweep**: east along a row, one step south, then west along the next row, repeating until the zone is fully covered.
+
+![Sweep strategy](7_robot_mission_MAS2026/figures/exploration.png)
+
+The left panel shows the sweep pattern. The right panel shows `_prefer_unvisited()` in action: when the natural next cell is already visited, the robot picks a random unvisited neighbor instead (highlighted in yellow), maximising coverage without restarting the sweep.
+
+**How it works:**
+- Direction is tracked in `knowledge["sweep_dir"]` as `"east"` or `"west"`
+- On hitting a zone boundary the robot steps one cell south and reverses direction
+- The anti-backtracking helper `_prefer_unvisited()` (see below) deflects the robot toward unvisited cells whenever the primary candidate has already been seen
+
+**Characteristics:** systematic, predictable, high coverage, low variance across seeds. Experimental results show it achieves 0.42–0.50 global coverage consistently and is the recommended default for unknown deployment conditions.
+
+#### Random Walk
+
+At each step the robot picks one valid Von Neumann neighbor uniformly at random, constrained to its accessible zone. No memory of previously visited cells is used.
+
+**How it works:**
+- All four neighbors `(pos ± 1)` are enumerated
+- Any neighbor outside bounds or in a forbidden zone is discarded
+- One of the remaining valid neighbors is chosen with equal probability via `self.random.choice()`
+
+**Characteristics:** zero overhead, but high redundancy — the same cells are revisited frequently. Experimental results show it disposes 10–40% less waste than Sweep or BFS and sits ~0.10 lower on global coverage with wider variance.
+
+#### Frontier-Based BFS
+
+Robots maintain a `visited` set and use BFS to always navigate toward the **nearest unvisited cell on the known/unknown boundary** (the "frontier").
+
+**How it works:**
+
+1. **Build the frontier**: any unvisited, in-range cell that is adjacent to at least one already-visited cell.
+2. **BFS to nearest frontier cell**: starting from the robot's current position, expand outward respecting `can_move_to()` and the zone x-range until a frontier cell is reached.
+3. **Return the first hop** of the shortest path found — always a single Von Neumann step, so no jump moves are possible.
+4. **Fallback**: if the entire accessible area has been visited, or no path exists, fall back to a random valid neighbor.
+
+```mermaid
+flowchart TD
+    A[Step start: robot at pos] --> B[Compute frontier\nunvisited in-range cells adjacent to visited]
+    B --> C{Frontier empty?}
+    C -- Yes --> G[Return None / fallback]
+    C -- No --> D[BFS from pos to nearest frontier cell\nrespecting can_move_to and x-range]
+    D --> E{Path found?}
+    E -- Yes --> H[Return first hop of path]
+    E -- No --> F[Random valid in-range neighbour]
+    F --> I{Any valid neighbour?}
+    I -- Yes --> H
+    I -- No --> G
+```
+
+**Characteristics:** directed exploration pressure toward the boundary between known and unknown space. Achieves the highest raw disposal throughput under high robot + heavy waste conditions, but has the widest IQR across seeds — best in favourable conditions, worst in unfavourable ones.
+
+---
+
+### Shared Mechanisms (all strategies)
+
+#### Anti-Backtracking: `_prefer_unvisited()`
+
+Used by Sweep and as a fallback in BFS. Applies a three-level priority:
+
+1. **Candidate unvisited** → use it directly
+2. **Candidate visited, unvisited neighbor exists** → pick a random unvisited neighbor
+3. **All neighbors visited** → pick any neighbor that isn't the robot's previous position (`move_history[-2]`)
+
+This prevents ping-pong loops without requiring a full BFS traversal.
+
+#### Frontier Scanning (Yellow & Red Robots)
+
+Regardless of exploration strategy, Yellow and Red robots perform periodic **frontier scans** to detect waste deposited by upstream robots at zone boundaries:
 
 
+1. Every `frontier_check_interval` steps (default: `width + height`, i.e. 60 on a 40×20 grid), `frontier_mode` activates
+2. The robot navigates to its `pickup_frontier` x-column (the z1/z2 boundary for Yellow, z2/z3 for Red)
+3. The robot sweeps the full y-axis of that column top-to-bottom
+4. After completing the scan, the counter resets and normal exploration resumes
+
+This ensures waste deposited at zone boundaries is detected promptly without requiring direct communication between robot types.
+
+#### Zone Return Logic
+
+If a Yellow or Red robot drifts too far west (into a zone where its target waste cannot appear), it immediately redirects eastward until back in its operational zone. This prevents robots spending cycles in unreachable areas regardless of which exploration strategy is active.
+
+---
+
+## 7. Interaction & Organization
+
+### Indirect Coordination
+
+Agents coordinate **indirectly** through the environment as their primary coordination mechanism. When `communication_enabled=False`, this is the only form of coordination:
+
+```
+Green Robot deposits yellow waste at x = z1_end (deposit_frontier)
+        ↓  yellow waste object appears on grid
+Yellow Robot perceives yellow waste during sweep or frontier scan
+        ↓  collects it, transforms, deposits red waste at x = z2_end
+Red Robot perceives red waste during sweep or frontier scan
+        ↓  collects it, transports to disposal column, disposes
+```
+
+This is a **tightly coupled pipeline** by design, each robot type depends on the output of the upstream type, but **loosely coupled** in terms of agent interactions: no agent makes assumptions about the internal state of another.
+
+### Direct Communication: Contract-Based Rendezvous (optional)
+
+When `communication_enabled=True`, Green and Yellow robots gain the ability to coordinate directly when one of them has been stuck carrying a single transformable waste for too long.
+
+#### Problem it solves
+
+A robot that picked up one green (or yellow) waste may fail to find a second matching waste nearby for many steps, stalling the pipeline. Without communication it must keep sweeping and hoping. With communication, two such "lonely carrier" robots can find each other and transfer a waste unit so the receiver immediately holds two and can transform.
+
+#### Architecture: blackboard with contract channels
+
+The model maintains a lightweight **blackboard** (`self._comm`) with two independent channels:
+
+| Channel | Participants | Zone |
+|---------|-------------|------|
+| `green` | GreenRobots | z1 |
+| `yellow` | YellowRobots | z1 + z2 |
+
+Each channel stores:
+- `waiting` — robots that have signalled a need and are waiting to be matched
+- `contracts` — active pairing agreements between two robots
+- `robot_to_contract` — fast lookup from robot ID to its active contract
+
+#### Step-by-step protocol
+
+| Step | Phase | Who | What happens |
+|------|-------|-----|--------------|
+| 1 | **Trigger** | Robot | Holds exactly 1 transformable waste for ≥ 12 steps → emits `{"action": "comm_need", "channel": "green"\|"yellow"}` |
+| 2 | **Register** | `_do_comm_need()` | Validates robot state, adds it to `waiting[channel]`, then immediately calls `_comm_try_match()` |
+| 3 | **Match** | `_comm_try_match()` | Scans all waiting pairs, picks the closest two (Manhattan distance), creates a contract with a `meet_pos` (midpoint of their positions, clamped to channel zone) and an expiry of 25 steps. Assigns lower `unique_id` as **receiver**, higher as **donor** |
+| 4 | **Navigate** | Both robots | `_comm_get_assignment()` injects the contract into percepts each step. `_comm_action_from_assignment()` moves each robot one step at a time toward `meet_pos` via `_step_toward()` |
+| 5 | **Transfer** | Donor | Once both robots share the same cell at `meet_pos`, donor emits `{"action": "transfer", ...}`. `_do_transfer()` validates the contract and moves one waste object from `donor.inventory` to `receiver.inventory` |
+| 6 | **Outcome** | Both robots | Receiver now holds 2 wastes → transforms on the next step. Donor resumes normal exploration with an empty inventory |
+| 7 | **Cleanup** | `_comm_cleanup()` | Runs every model step to expire contracts that exceeded their 25-step timeout and remove stale waiting entries |
+
+#### Key design properties
+
+- **No global knowledge required**: robots only know their own position and the `meet_pos` from their contract. They navigate using one-step moves.
+- **Nearest-first matching**: `_comm_try_match()` always pairs the two closest waiting robots, minimising total travel distance to the rendezvous.
+- **Contract timeout**: contracts expire after 25 steps, freeing robots to re-register or resume sweeping if the rendezvous fails (e.g. one robot was busy for a different reason).
+- **Metric coherence**: `_do_transfer()` updates the first→second pickup timing metrics so that waste transferred via communication is counted the same way as waste collected directly from the ground.
+- **Encapsulation preserved**: `deliberate()` never calls `self.model`. The assignment arrives through percepts; the robot only returns an action dict. The model executes the transfer.
+
+#### Why communication had limited benefit in experiments
+
+See §9.5.3. The rendezvous overhead (steps spent travelling to `meet_pos`) consumed cycles that would otherwise be spent sweeping. The threshold of 12 steps is aggressive enough that robots trigger communication before they would have found waste by normal sweep. The effect was near-neutral on disposal count and communication is recommended off for unknown conditions.
+
+### Scheduling
+
+- **Synchronous** model: all robots execute one step per model `step()` call
+- **Random activation order**: `shuffle_do("step_agent")` randomizes execution order within each step, preventing systematic bias where one robot type always acts before another
+
+### Organization
+
+| Level | Structure |
+|---|---|
+| Individual | Each robot has role-specific deliberation logic and zone constraints |
+| Team | Three specialized roles forming a processing pipeline |
+| System | Emergent property: global cleanup from local behaviors with no central coordinator |
+
+---
+
+## 8. Evaluation Criteria & Results
+
+### Primary Metrics
+
+| Metric | Description |
+|---|---|
+| **Disposal Rate** | `waste_disposed / step`, how fast waste is permanently removed |
+| **Pipeline Throughput** | Number of transformation events per time window |
+| **Collection Coverage** | Fraction of zone explored per robot per 50 steps |
+| **Residual Waste** | Ground + carried waste remaining at `max_steps` |
+
+### Baseline Configuration Results (seed=7)
+
+### Bottleneck Analysis
+
+---
+
+## 9. Configurations Tested
+
+### 9.1 Naming Convention
+Each config file is named `config_M<x>_R<y>_W<z>_C<c>.json`, encoding all four experimental dimensions:
+
+| Token | Dimension | Values |
+|-------|-----------|--------|
+| `M` | Exploration Mode | `M0` Sweep · `M1` Random · `M2` BFS |
+| `R` | Robot Density | `RL` Low (2/1/1) · `RM` Medium (3/2/1) · `RH` High (6/4/2) |
+| `W` | Waste Density | `WS` Sparse · `WB` Balanced · `WH` Heavy |
+| `C` | Communication | `C0` OFF · `C1` ON |
+
+### 9.2 Experimental Dimensions
+
+Each config is run with **3 seeds** (7, 16, 32) → **108 runs total** (36 configs × 3 seeds).
+
+The 6 scenarios per mode were chosen to cover extremes (RL+WH, RH+WH), a neutral baseline
+(RM+WB), and mid-range cases (RM+WS, RH+WB, RL+WS). Communication is tested as a clean
+independent variable across all combinations.
 
 
+### 9.3 Design Rationale
+
+Configurations were chosen to form a **full factorial sub-design** across the four dimensions, allowing isolation of each factor's effect:
+
+- **Communication vs. no communication** is tested across all mode × density combinations, making `C` a clean independent variable.
+- **RL + WH** is an intentionally stressful combination (few robots, heavy waste) that reveals the upper bound of collection time and highlights where communication helps most.
+- **RH + WS** tests the opposite extreme: many robots competing for few waste items, where communication overhead may not be beneficial.
+- **RM + WB** acts as the neutral baseline present across all three modes, enabling direct mode-to-mode comparison under identical conditions.
+- Seeds 7, 16, and 32 were chosen to assess result stability without inflating run count. Variance across seeds reflects sensitivity to initial waste and robot placement.
+
+
+### 9.4 Key Metrics Collected
+
+Each run records the following at every simulation step:
+
+| Metric | Description |
+|--------|-------------|
+| `Waste_Disposed` | Cumulative waste successfully disposed (primary KPI) |
+| `Global_Coverage` | Mean visited-cell ratio across all 3 zones |
+| `Avg_Green_Collection_Time` | Mean steps between a green robot's 1st and 2nd pickup |
+| `Avg_Yellow_Collection_Time` | Same metric for yellow robots |
+| `Visited_Ratio_Z1/Z2/Z3` | Per-zone exploration coverage |
+| `Green/Yellow/Red_Waste_Ground` | Remaining waste on the grid per type |
+| `Green_to_Yellow_Transformations` | Cumulative green→yellow merges |
+| `Yellow_to_Red_Transformations` | Cumulative yellow→red merges |
+| `*_Robots_With_Inventory` | Count of robots currently carrying waste |
+
+### 9.5 Results & Analysis
+
+#### 9.5.1 Disposal Performance
+![Disposal Bars](7_robot_mission_MAS2026/experiments/fig1_disposal_bars.png)
+
+**Robot density is the dominant factor.** High-density deployments consistently dispose
+the most waste regardless of mode. BFS edges ahead under High robots + Heavy waste (~8
+units vs ~7.4 for Sweep, ~6 for Random). Random underperforms in every non-trivial
+scenario, disposing 10–40% less than Sweep and BFS due to redundant revisits.
+Low robot density bottlenecks all modes below 5.5 units even under heavy load.
+
+
+#### 9.5.2 Search Efficiency
+![Efficiency Scatter](7_robot_mission_MAS2026/experiments/fig2_efficiency_scatter.png)
+
+Sweep and BFS both reach 0.45–0.65 global coverage with low collection times (bottom-right
+= ideal). Random scatters widely with two outliers exceeding 125 steps average collection
+time at under 45% coverage. Low robot density (large circles) consistently pushes
+collection time up regardless of mode — fewer agents means longer waits between pickups.
+
+
+#### 9.5.3 Communication Impact
+![Communication Impact](7_robot_mission_MAS2026/experiments/fig5_communication_impact.png)
+
+Communication (C1) shows **no clear benefit** — it slightly reduces mean disposal across
+all three modes. The rendezvous overhead consumes steps that would otherwise be spent
+exploring. The effect is near-neutral (overlapping CIs) and would only be expected to
+help under very sparse waste or much longer step budgets.
+
+#### 9.5.4 Robot × Waste Heatmap
+![Heatmap](7_robot_mission_MAS2026/experiments/fig6_heatmap_disposal.png)
+
+The disposal gradient runs diagonally: High robots + Heavy waste always peaks (dark
+green), Low robots + Sparse waste always bottoms out. Random's Low/Heavy cell reaches
+only 3.3 vs 5.0–5.2 for Sweep and BFS — a 35–38% gap showing poor coverage even when
+waste is abundant.
+
+#### 9.5.5 Seed Reliability
+![Seed Reliability](7_robot_mission_MAS2026/experiments/fig3_seed_reliability.png)
+
+BFS has the widest IQR — best in favourable conditions, worst in unfavourable ones.
+Random is the most consistent but consistently mediocre. Sweep offers the best balance:
+competitive ceiling, reasonable floor, no zeros except in the hardest Low/Sparse configs.
+
+#### 9.5.6 Exploration Stability
+![Coverage Stability](7_robot_mission_MAS2026/experiments/fig4_coverage_stability.png)
+
+Sweep and BFS hold steady at 0.42–0.50 coverage across all three seeds with narrow CIs.
+Random sits ~0.10 lower with wider variance. All curves are flat — results are driven by
+algorithm design, not by lucky initialisation.
+
+#### 9.5.7 Summary
+
+| Criterion | Winner | Runner-up |
+|-----------|--------|-----------|
+| Raw throughput (heavy load) | BFS | Sweep |
+| Exploration coverage | Sweep | BFS |
+| Consistency across seeds | Sweep | BFS |
+| Worst-case robustness | Sweep | BFS |
+| Communication benefit | — (neutral) | — |
+
+> **Recommendation:** Use **Sweep + Communication OFF** for unknown deployment conditions.
+> Switch to **BFS** only when robot and waste densities are both high.
+
+---
+
+## 10. How to Run
+
+### Prerequisites
+
+```bash
+pip install mesa solara matplotlib pandas
+```
+
+### Option 1: Visual Interface (Solara)
+
+```bash
+solara run server.py
+```
+
+Opens a browser at `http://localhost:8765`. Use the sliders to adjust grid dimensions, number of robots, initial waste quantities, and max steps.
+
+### Option 2: Headless Simulation
+
+```bash
+python run.py
+```
+
+Runs with default parameters (3G/2Y/1R robots, 10G/5Y/3R waste, 250 steps, seed=7). Edit the `run_simulation(...)` call at the bottom of `run.py` to test different configurations:
+
+```python
+model, data = run_simulation(
+    n_steps=250,
+    n_green_robots=5,
+    n_yellow_robots=3,
+    n_red_robots=2,
+    n_initial_green_waste=30,
+    n_initial_yellow_waste=5,
+    n_initial_red_waste=3,
+    seed=42
+)
+```
+
+Outputs:
+
+- `figs/robot_mission_results.png` - 4-panel results chart
+- `results/robot_mission_data.csv` - step-by-step metrics
+
+```bash
+mkdir -p figs results   # create output directories before first run
+```
+
+---
+
+## 11. File Structure
+
+```
+robot_mission_MAS2026/
+│
+├── agents.py         - Robot agent classes (GreenRobot, YellowRobot, RedRobot)
+│                       BaseRobot with shared exploration, sweep, and frontier logic
+│
+├── model.py          - RobotMissionModel (Mesa Model)
+│                       Grid setup, zone boundaries, percept generation, action execution
+│
+├── objects.py        - Passive environment objects
+│                       Waste, RadioactivityCell, WasteDisposalZone
+│
+├── server.py         - Solara visualization server
+│                       Grid display, inventory counters, live charts
+│
+├── run.py            - Headless simulation runner
+│                       Configurable parameters, result plots, CSV export
+│
+├── figs/             - Figures (README illustrations + simulation result plots)
+├── results/          - CSV data output
+│
+└── README.md         - This document
+```
+
+---
+
+## Design Choices & Limitations
+
+### Design Choices
+
+- **Cognitive over reactive**: agents maintain visited-cell memory and move history, enabling more efficient systematic coverage than random walk.
+- **Minimal knowledge per robot**: each robot type is given only the frontier coordinates relevant to its role. Shared constants (`grid_width`, `grid_height`) live in `knowledge` from `__init__`; dynamic observations arrive via percepts. `deliberate()` never accesses `self.model`.
+- **Action feasibility in `model.do()`**: the environment is the sole authority on what is possible, agents cannot directly modify the grid; all changes go through `do()`.
+- **Frontier scanning**: periodic proactive behavior prevents yellow/red robots from missing deposited waste even when their systematic sweep hasn't yet reached the frontier.
+- **Communication is optional**: stigmergic coordination via the environment is sufficient for the pipeline to function correctly. Direct communication (contract-based rendezvous) is available as an opt-in layer that helps in sparse-waste scenarios but adds rendezvous overhead; experimental results show it is near-neutral on disposal throughput (see §9.5.3).
+
+### Known Limitations
+
+- With many green robots and sparse waste, robots may target the same waste cell; only one succeeds, the others waste a step.
+- The sweep algorithm does not coordinate between same-type robots, two green robots may cover the same sub-zone redundantly.
+- No learning or adaptation, robots do not update their strategy based on past performance.
